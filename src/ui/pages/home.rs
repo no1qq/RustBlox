@@ -17,14 +17,19 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let installed = state.detection.active().is_some();
 
     let mut rescan = false;
-    widgets::page_header(ui, "Home", "Launch Roblox and watch the client.", |ui| {
-        rescan = widgets::Button::new("Rescan")
-            .icon(Icon::Refresh)
-            .tone(widgets::Tone::Ghost)
-            .enabled(!state.tasks.is_scanning())
-            .show(ui)
-            .clicked();
-    });
+    widgets::page_header(
+        ui,
+        "Home",
+        "What is installed and what has been launched.",
+        |ui| {
+            rescan = widgets::Button::new("Rescan")
+                .icon(Icon::Refresh)
+                .tone(widgets::Tone::Ghost)
+                .enabled(!state.tasks.is_scanning())
+                .show(ui)
+                .clicked();
+        },
+    );
     if rescan {
         state.rescan();
     }
@@ -58,9 +63,9 @@ fn missing_install(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_st
                 "Roblox was not found"
             },
             if scanning {
-                "Checking the usual install locations on this machine."
+                "Checking the usual install locations."
             } else {
-                "RustBlox checked the standard Roblox folders and the registered launch handler without finding a client. RustBlox can download and install it for you, or point it at a copy you already have."
+                "Download it here, or point RustBlox at a copy you already have."
             },
             |ui| {
                 ui.horizontal(|ui| {
@@ -103,125 +108,88 @@ fn missing_install(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_st
 fn hero(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
     let palette = theme.palette;
     let running = state.roblox.player_running();
-    let can_launch = state.can_launch();
 
     let install = state.detection.active().cloned();
     let Some(install) = install else { return };
 
-    let mut launch_default = false;
-    let mut launch_app = false;
-    let mut open_installation = false;
     let update = state.update_available().cloned();
+    let mut open_installation = false;
 
     widgets::card(ui, |ui| {
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.metrics.gap_lg;
-
-            ui.vertical(|ui| {
-                let width = (ui.available_width() - 210.0).max(220.0);
-                ui.set_width(width);
-
-                ui.horizontal(|ui| {
-                    let (tone, label) = if running {
-                        (feedback::Tone::Success, state.roblox.summary())
-                    } else {
-                        (feedback::Tone::Neutral, "Client idle".to_string())
-                    };
-                    widgets::status_pill(ui, &label, tone, running);
-                    widgets::badge(ui, install.source.short(), feedback::Tone::Accent);
-                });
-
-                ui.add_space(theme.metrics.gap_md);
-                ui.label(
-                    egui::RichText::new("Roblox is ready")
-                        .font(theme::strong(theme::size::DISPLAY))
-                        .color(palette.text),
-                );
-                ui.add_space(3.0);
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Version {} - {}",
-                        install.display_version(),
-                        install.source.label()
-                    ))
-                    .font(theme::text_style(theme::size::SMALL))
-                    .color(palette.text_muted),
-                );
-
-                if let Some(update) = &update {
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        widgets::badge(ui, "Update", feedback::Tone::Accent);
-                        ui.label(
-                            egui::RichText::new(format!("Roblox {} is available", update.version))
-                                .font(theme::text_style(theme::size::SMALL))
-                                .color(palette.text_muted),
-                        );
-                        if widgets::Button::new("Install it")
-                            .tone(widgets::Tone::Quiet)
-                            .size(widgets::Size::Small)
-                            .show(ui)
-                            .clicked()
-                        {
-                            open_installation = true;
-                        }
-                    });
-                }
-
-                ui.add_space(theme.metrics.gap_lg);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
-                    launch_default = widgets::Button::primary("Launch Roblox")
-                        .icon(Icon::Rocket)
-                        .size(widgets::Size::Large)
-                        .enabled(can_launch)
-                        .min_width(190.0)
-                        .show(ui)
-                        .clicked();
-
-                    launch_app = widgets::Button::new("Open home screen")
-                        .tone(widgets::Tone::Ghost)
-                        .size(widgets::Size::Large)
-                        .enabled(can_launch)
-                        .show(ui)
-                        .clicked();
-                });
-            });
-
-            ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                ui.set_width(ui.available_width().max(160.0));
-                widgets::nested(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = theme.metrics.gap_sm;
-                    widgets::detail_row(ui, "Version", install.display_version(), true);
-                    widgets::detail_row(ui, "Folder", &install.folder_id, true);
-                    widgets::detail_row(
-                        ui,
-                        "Launches",
-                        &state.persisted.launch_count.to_string(),
-                        false,
-                    );
-                    widgets::detail_row(
-                        ui,
-                        "Flags",
-                        &if state.settings.advanced.apply_flag_profile {
-                            format!("{} on launch", state.flags.active_count())
-                        } else {
-                            "Not applied".to_string()
-                        },
-                        false,
-                    );
-                });
-            });
+        ui.horizontal(|ui| {
+            let (tone, label) = if running {
+                (feedback::Tone::Success, state.roblox.summary())
+            } else {
+                (feedback::Tone::Neutral, "Client idle".to_string())
+            };
+            widgets::status_pill(ui, &label, tone, running);
+            widgets::badge(ui, install.source.short(), feedback::Tone::Neutral);
         });
+
+        ui.add_space(theme.metrics.gap_md);
+        ui.label(
+            egui::RichText::new(format!("Roblox {}", install.display_version()))
+                .font(theme::strong(theme::size::DISPLAY))
+                .color(palette.text),
+        );
+        ui.add_space(3.0);
+        ui.label(
+            egui::RichText::new(install.version_dir.display().to_string())
+                .font(egui::FontId::new(
+                    theme::size::MICRO,
+                    egui::FontFamily::Monospace,
+                ))
+                .color(palette.text_faint),
+        );
+
+        ui.add_space(theme.metrics.gap_md);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = theme.metrics.gap_lg;
+            widgets::stat(
+                ui,
+                "Launches",
+                &state.persisted.launch_count.to_string(),
+                feedback::Tone::Neutral,
+            );
+            widgets::stat(
+                ui,
+                "Flags",
+                &if state.settings.advanced.apply_flag_profile {
+                    format!("{} on launch", state.flags.active_count())
+                } else {
+                    "Not applied".to_string()
+                },
+                feedback::Tone::Neutral,
+            );
+            widgets::stat(
+                ui,
+                "Source",
+                install.source.short(),
+                feedback::Tone::Neutral,
+            );
+        });
+
+        if let Some(update) = &update {
+            ui.add_space(theme.metrics.gap_md);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+                widgets::badge(ui, "Update", feedback::Tone::Accent);
+                ui.label(
+                    egui::RichText::new(format!("Roblox {} is available", update.version))
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(palette.text_muted),
+                );
+                if widgets::Button::new("Install it")
+                    .size(widgets::Size::Small)
+                    .show(ui)
+                    .clicked()
+                {
+                    open_installation = true;
+                }
+            });
+        }
     });
 
-    if launch_default {
-        let target = state.default_target();
-        request_launch(state, ui_state, target);
-    }
-    if launch_app {
-        request_launch(state, ui_state, LaunchTarget::App);
-    }
     if open_installation {
         ui_state.page = Page::Installation;
     }

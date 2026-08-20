@@ -50,8 +50,8 @@ the icon and manifest are embedded by `build.rs`.
 ## Command line
 
 ```
-RustBlox                    open the window
-RustBlox --settings         open the window on the Settings page
+RustBlox                    open the launcher
+RustBlox --settings         open the full window on the Settings page
 RustBlox --launch           start Roblox using the configured startup target
 RustBlox --forward <uri>    hand a roblox: or roblox-player: link to the client
 RustBlox --portable         keep configuration next to the executable
@@ -151,6 +151,22 @@ broken client. A test that runs against the live CDN checks the map is still com
   another launcher. An install somewhere else needs a custom path, which the
   Installation page accepts.
 
+## Two windows
+
+Starting RustBlox opens a small launcher: Launch Roblox, Configure settings, and
+Uninstall RustBlox. That is the whole window, and it is what you use day to day.
+
+Configure settings opens the full window, which is where installs, flags, quick launch
+entries and everything else live. The sidebar there collapses to icons with the button
+above the tabs. `rustblox --settings` opens the full window directly.
+
+Uninstall asks first. It always removes `%LOCALAPPDATA%\RustBlox\data`, which holds
+the Roblox copies RustBlox installed, its logs, its saved state and its flag profile.
+Removing `%APPDATA%\RustBlox\config` as well is a choice in the dialog, so keeping it
+means a reinstall starts where you left off. Any registered link handler is put back
+first, and the executable removes itself last. A Roblox install that RustBlox did not
+create is never touched.
+
 ## Light and dark
 
 Appearance is one setting with three positions: Automatic, Light and Dark.
@@ -195,7 +211,8 @@ src/
   selfupdate.rs   GitHub releases, download and in place swap
   roblox/         detection, deployment, installer, version housekeeping, launch
                   pipeline, URIs, flags
-  ui/             theme, icons, app icon, widgets, pages, chrome, overlays
+  uninstall.rs    removing RustBlox and the data it created
+  ui/             theme, icons, app icon, widgets, pages, chrome, launcher
   util/           filesystem helpers, formatting, version compare, logging
 ```
 

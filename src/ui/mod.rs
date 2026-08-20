@@ -1,8 +1,9 @@
-mod chrome;
+pub mod chrome;
 
 pub mod appicon;
 mod install_overlay;
-mod overlay;
+pub mod launcher;
+pub mod overlay;
 mod pages;
 mod toasts;
 
@@ -30,6 +31,14 @@ pub enum Page {
 }
 
 impl Page {
+    pub const ALL: [Page; 5] = [
+        Page::Home,
+        Page::Installation,
+        Page::Flags,
+        Page::Settings,
+        Page::About,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             Page::Home => "Home",
@@ -78,8 +87,22 @@ impl SettingsTab {
     }
 }
 
+pub fn starts_in_launcher(command: &CommandKind) -> bool {
+    !matches!(command, CommandKind::WindowOnSettings)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Shell {
+    #[default]
+    Launcher,
+    Full,
+}
+
 #[derive(Default)]
 pub struct UiState {
+    pub shell: Shell,
+    pub sidebar_collapsed: bool,
+    pub uninstall: Option<bool>,
     pub page: Page,
     pub settings_tab: SettingsTab,
     pub quick_input: String,
@@ -105,6 +128,7 @@ pub struct RustBloxApp {
     fonts_ready: bool,
     applied_scale: f32,
     applied_theme: Option<Theme>,
+    applied_shell: Option<Shell>,
     saved_window: WindowState,
 }
 
@@ -119,7 +143,10 @@ impl RustBloxApp {
 
         let mut ui = UiState::default();
         match command {
-            CommandKind::WindowOnSettings => ui.page = Page::Settings,
+            CommandKind::WindowOnSettings => {
+                ui.shell = Shell::Full;
+                ui.page = Page::Settings;
+            }
             CommandKind::Forward(uri) => {
                 state.forwarding = true;
                 state.launch(LaunchTarget::Forward(uri.clone()));
@@ -132,6 +159,7 @@ impl RustBloxApp {
         }
 
         let saved_window = state.persisted.window.sanitised();
+        let shell = ui.shell;
 
         Self {
             state,
@@ -139,6 +167,7 @@ impl RustBloxApp {
             fonts_ready: true,
             applied_scale: 0.0,
             applied_theme: None,
+            applied_shell: Some(shell),
             saved_window,
         }
     }
@@ -157,7 +186,83 @@ impl RustBloxApp {
         }
     }
 
+    fn sync_shell(&mut self, ctx: &egui::Context) {
+        if self.applied_shell == Some(self.ui.shell) {
+            return;
+        }
+        self.applied_shell = Some(self.ui.shell);
+
+        match self.ui.shell {
+            Shell::Launcher => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                    launcher::WIDTH,
+                    launcher::HEIGHT,
+                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    launcher::WIDTH,
+                    launcher::HEIGHT,
+                )));
+            }
+            Shell::Full => {
+                let window = self.saved_window.sanitised();
+                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                    WindowState::MIN_WIDTH,
+                    WindowState::MIN_HEIGHT,
+                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    window.width,
+                    window.height,
+                )));
+            }
+        }
+    }
+
+    fn launcher(&mut self, root: &mut egui::Ui, theme: &Theme) {
+        let ctx = &root.ctx().clone();
+        egui::Panel::top("launcher-titlebar")
+            .exact_size(theme.metrics.titlebar_h)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::new().fill(theme.palette.sidebar))
+            .show(root, |ui| {
+                launcher::title_bar(ui, theme, &mut self.state);
+            });
+
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(theme.palette.window)
+                    .inner_margin(egui::Margin::same(14)),
+            )
+            .show(root, |ui| {
+                launcher::render(ui, theme, &mut self.state, &mut self.ui);
+            });
+
+        launcher::uninstall_dialog(ctx, theme, &mut self.state, &mut self.ui);
+        overlay::launch_overlay(ctx, theme, &mut self.state, &mut self.ui);
+        overlay::confirm_dialog(ctx, theme, &mut self.state, &mut self.ui);
+        toasts::render(ctx, theme, &mut self.state);
+
+        if self.state.minimize_requested {
+            self.state.minimize_requested = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+        if self.state.close_requested {
+            self.state.close_requested = false;
+            let _ = self.state.shutdown();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if ctx.input(|input| input.viewport().close_requested()) {
+            let _ = self.state.shutdown();
+        }
+    }
+
     fn remember_window(&mut self, ctx: &egui::Context) {
+        if self.ui.shell != Shell::Full {
+            return;
+        }
         let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
         let size = ctx.input(|input| input.viewport().inner_rect.map(|rect| rect.size()));
 
@@ -204,6 +309,13 @@ impl eframe::App for RustBloxApp {
 
         let theme = Theme::get(&ctx);
 
+        self.sync_shell(&ctx);
+
+        if self.ui.shell == Shell::Launcher {
+            self.launcher(root, &theme);
+            return;
+        }
+
         chrome::resize_edges(&ctx, &theme);
 
         egui::Panel::top("titlebar")
@@ -215,8 +327,14 @@ impl eframe::App for RustBloxApp {
                 chrome::title_bar(ui, &theme, &mut self.state, &mut self.ui);
             });
 
+        let sidebar_w = if self.ui.sidebar_collapsed {
+            56.0
+        } else {
+            theme.metrics.sidebar_w
+        };
+
         egui::Panel::left("sidebar")
-            .exact_size(theme.metrics.sidebar_w)
+            .exact_size(sidebar_w)
             .resizable(false)
             .drag_to_open(false)
             .show_separator_line(false)
@@ -224,8 +342,8 @@ impl eframe::App for RustBloxApp {
                 egui::Frame::new()
                     .fill(theme.palette.sidebar)
                     .inner_margin(egui::Margin {
-                        left: 10,
-                        right: 10,
+                        left: 6,
+                        right: 6,
                         top: 8,
                         bottom: 10,
                     }),

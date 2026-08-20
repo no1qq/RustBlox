@@ -376,3 +376,28 @@ pub fn confirm_dialog(
         ui_state.confirm = None;
     }
 }
+
+pub fn modal<R>(
+    ctx: &egui::Context,
+    theme: &Theme,
+    id: &str,
+    width: f32,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> bool {
+    let palette = theme.palette;
+    let response = egui::Modal::new(egui::Id::new(id))
+        .backdrop_color(palette.scrim)
+        .frame(
+            egui::Frame::new()
+                .fill(palette.surface)
+                .stroke(Stroke::new(1.0, palette.border))
+                .corner_radius(theme.radius_md())
+                .inner_margin(egui::Margin::same(22)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(width);
+            add(ui);
+        });
+
+    response.should_close()
+}

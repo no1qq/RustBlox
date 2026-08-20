@@ -1,6 +1,5 @@
 use egui::{Align2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::ui::appicon;
 use crate::ui::icons::{self, Icon};
 use crate::ui::theme::{self, Theme};
 
@@ -12,6 +11,7 @@ pub fn nav_item(
     label: &str,
     selected: bool,
     badge: Option<&str>,
+    collapsed: bool,
 ) -> Response {
     let theme = Theme::get(ui.ctx());
     let height = theme.metrics.row_h;
@@ -59,10 +59,13 @@ pub fn nav_item(
         };
         let glyph = if selected { palette.accent } else { tint };
 
-        let icon_rect = Rect::from_min_size(
-            egui::pos2(rect.left() + 14.0, rect.center().y - 8.0),
-            Vec2::splat(16.0),
-        );
+        let icon_x = if collapsed {
+            rect.center().x - 8.0
+        } else {
+            rect.left() + 14.0
+        };
+        let icon_rect =
+            Rect::from_min_size(egui::pos2(icon_x, rect.center().y - 8.0), Vec2::splat(16.0));
         icons::draw(ui.painter(), icon, icon_rect, glyph, 1.7);
 
         let font = if selected {
@@ -70,15 +73,23 @@ pub fn nav_item(
         } else {
             theme::text_style(theme::size::BODY)
         };
-        ui.painter().text(
-            egui::pos2(icon_rect.right() + 11.0, rect.center().y),
-            Align2::LEFT_CENTER,
-            label,
-            font,
-            tint,
-        );
+        if !collapsed {
+            ui.painter().text(
+                egui::pos2(icon_rect.right() + 11.0, rect.center().y),
+                Align2::LEFT_CENTER,
+                label,
+                font,
+                tint,
+            );
+        }
 
-        if let Some(badge) = badge {
+        if collapsed {
+            if let Some(badge) = badge {
+                let dot = egui::pos2(icon_rect.right() + 1.0, icon_rect.top() + 1.0);
+                ui.painter().circle_filled(dot, 3.5, palette.accent);
+                let _ = badge;
+            }
+        } else if let Some(badge) = badge {
             let badge_font = theme::medium(theme::size::MICRO);
             let galley = ui.painter().layout_no_wrap(
                 badge.to_owned(),
@@ -105,45 +116,9 @@ pub fn nav_item(
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 
-    response
-}
-
-pub fn brand(ui: &mut Ui, name: &str, tag: &str) {
-    let theme = Theme::get(ui.ctx());
-    let palette = theme.palette;
-    let height = 40.0;
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
-
-    let mark = Rect::from_min_size(
-        egui::pos2(rect.left() + 14.0, rect.center().y - 11.0),
-        Vec2::splat(22.0),
-    );
-    appicon::paint(ui, mark, theme.radius_sm());
-
-    ui.painter().text(
-        egui::pos2(mark.right() + 10.0, rect.center().y - 7.0),
-        Align2::LEFT_CENTER,
-        name,
-        theme::medium(theme::size::BODY),
-        palette.text,
-    );
-    ui.painter().text(
-        egui::pos2(mark.right() + 10.0, rect.center().y + 7.0),
-        Align2::LEFT_CENTER,
-        tag,
-        theme::text_style(theme::size::MICRO),
-        palette.text_faint,
-    );
-}
-
-pub fn section_label(ui: &mut Ui, text: &str) {
-    let theme = Theme::get(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 22.0), Sense::hover());
-    ui.painter().text(
-        egui::pos2(rect.left() + 14.0, rect.center().y + 2.0),
-        Align2::LEFT_CENTER,
-        text.to_uppercase(),
-        theme::medium(theme::size::MICRO - 1.0),
-        theme.palette.text_faint,
-    );
+    if collapsed {
+        response.on_hover_text(label)
+    } else {
+        response
+    }
 }

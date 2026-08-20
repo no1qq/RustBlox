@@ -8,7 +8,7 @@ use crate::roblox::launch::LaunchTarget;
 use super::appicon;
 use super::icons::{self, Icon};
 use super::theme::{self, Theme};
-use super::widgets::{self, feedback};
+use super::widgets;
 use super::{Page, UiState};
 
 const EDGE: f32 = 5.0;
@@ -148,7 +148,7 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mu
     appicon::paint(ui, mark, theme.radius_sm());
 
     ui.painter().text(
-        egui::pos2(mark.right() + 10.0, rect.center().y),
+        egui::pos2(mark.right() + 10.0, rect.center().y - 1.0),
         Align2::LEFT_CENTER,
         ui_state.page.label(),
         theme::medium(theme::size::SMALL),
@@ -211,7 +211,7 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mu
     );
 }
 
-fn window_button(ui: &mut Ui, theme: &Theme, icon: Icon, danger: bool) -> egui::Response {
+pub fn window_button(ui: &mut Ui, theme: &Theme, icon: Icon, danger: bool) -> egui::Response {
     let size = Vec2::new(46.0, theme.metrics.titlebar_h);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
 
@@ -246,11 +246,14 @@ fn window_button(ui: &mut Ui, theme: &Theme, icon: Icon, danger: bool) -> egui::
 }
 
 pub fn sidebar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
-    widgets::brand(ui, "RustBlox", "Roblox client manager");
-    ui.add_space(theme.metrics.gap_md);
+    let collapsed = ui_state.sidebar_collapsed;
 
-    widgets::section_label(ui, "Client");
-    for page in [Page::Home, Page::Installation, Page::Flags] {
+    if collapse_button(ui, theme, collapsed).clicked() {
+        ui_state.sidebar_collapsed = !collapsed;
+    }
+    ui.add_space(theme.metrics.gap_sm);
+
+    for page in Page::ALL {
         let badge = match page {
             Page::Flags if state.flags.active_count() > 0 => {
                 Some(state.flags.active_count().to_string())
@@ -263,6 +266,7 @@ pub fn sidebar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut 
             page.label(),
             ui_state.page == page,
             badge.as_deref(),
+            collapsed,
         )
         .clicked()
         {
@@ -270,60 +274,47 @@ pub fn sidebar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut 
         }
         ui.add_space(2.0);
     }
+}
 
-    ui.add_space(theme.metrics.gap_sm);
-    widgets::section_label(ui, "Application");
-    for page in [Page::Settings, Page::About] {
-        if widgets::nav_item(ui, page.icon(), page.label(), ui_state.page == page, None).clicked() {
-            ui_state.page = page;
-        }
-        ui.add_space(2.0);
+fn collapse_button(ui: &mut Ui, theme: &Theme, collapsed: bool) -> egui::Response {
+    let height = theme.metrics.row_h;
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+
+    let hover = ui
+        .ctx()
+        .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.1);
+    if hover > 0.0 {
+        ui.painter().rect_filled(
+            rect,
+            theme.radius_sm(),
+            theme.palette.surface_hover.gamma_multiply(hover * 0.7),
+        );
     }
 
-    let ready = state.detection.active().is_some();
-    let running = state.roblox.player_running();
-    let version = state
-        .detection
-        .active()
-        .map(|install| install.display_version().to_owned());
-    let (tone, label) = if !ready {
-        (feedback::Tone::Warning, "Roblox not found".to_string())
-    } else if running {
-        (feedback::Tone::Success, state.roblox.summary())
+    let x = if collapsed {
+        rect.center().x
     } else {
-        (feedback::Tone::Neutral, "Ready to launch".to_string())
+        rect.left() + 22.0
     };
-    let can_launch = ready && state.can_launch();
-    let mut launch_clicked = false;
-
-    ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-        widgets::card(ui, |ui| {
-            ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                ui.spacing_mut().item_spacing.y = theme.metrics.gap_sm;
-                widgets::status_pill(ui, &label, tone, running);
-
-                if let Some(version) = &version {
-                    ui.label(
-                        egui::RichText::new(format!("Version {version}"))
-                            .font(theme::text_style(theme::size::MICRO))
-                            .color(theme.palette.text_faint),
-                    );
-                }
-
-                launch_clicked = widgets::Button::primary("Launch Roblox")
-                    .icon(Icon::Rocket)
-                    .fill_width(true)
-                    .enabled(can_launch)
-                    .show(ui)
-                    .clicked();
-            });
-        });
-    });
-
-    if launch_clicked {
-        let target = state.default_target();
-        request_launch(state, ui_state, target);
+    let tint = theme.palette.text_muted;
+    for offset in [-5.0, 0.0, 5.0] {
+        ui.painter().hline(
+            (x - 7.0)..=(x + 7.0),
+            rect.center().y + offset,
+            Stroke::new(1.6, tint),
+        );
     }
+
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    response.on_hover_text(if collapsed {
+        "Show labels"
+    } else {
+        "Hide labels"
+    })
 }
 
 pub fn request_launch(state: &mut AppState, ui_state: &mut UiState, target: LaunchTarget) {

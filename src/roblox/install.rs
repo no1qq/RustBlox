@@ -70,7 +70,9 @@ impl Installation {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| dir.display().to_string());
 
-        let version = platform::file_version(&player).best().map(str::to_owned);
+        let version = platform::file_version(&player)
+            .best()
+            .map(normalise_version);
 
         let modified = std::fs::metadata(&player)
             .ok()
@@ -152,6 +154,21 @@ impl Integrity {
 
 pub use crate::util::version::{compare as compare_versions, parse as parse_version};
 
+pub fn normalise_version(text: &str) -> String {
+    let parts: Vec<String> = text
+        .split(['.', ','])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_owned)
+        .collect();
+
+    if parts.is_empty() {
+        text.trim().to_owned()
+    } else {
+        parts.join(".")
+    }
+}
+
 pub fn directory_size(dir: &Path, depth: u32) -> Option<u64> {
     if depth > 6 {
         return Some(0);
@@ -187,6 +204,15 @@ pub fn format_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_comma_versions_are_shown_with_dots() {
+        assert_eq!(normalise_version("0, 735, 0, 7351131"), "0.735.0.7351131");
+        assert_eq!(normalise_version("0.735.0.7351131"), "0.735.0.7351131");
+        assert_eq!(normalise_version("  1, 2  "), "1.2");
+        assert_eq!(normalise_version("WindowsPlayer"), "WindowsPlayer");
+        assert_eq!(normalise_version(""), "");
+    }
 
     #[test]
     fn parses_version_strings() {

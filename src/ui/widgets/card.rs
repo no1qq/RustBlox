@@ -19,21 +19,18 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 pub fn nested<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let theme = Theme::get(ui.ctx());
-    let response = Frame::new()
-        .inner_margin(egui::Margin::symmetric(0, theme.metrics.gap_sm as i8))
+    Frame::new()
+        .fill(theme.palette.surface)
+        .corner_radius(theme.radius_sm())
+        .inner_margin(egui::Margin::symmetric(
+            theme.metrics.gap_md as i8,
+            theme.metrics.gap_sm as i8,
+        ))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)
-        });
-
-    let rect = response.response.rect;
-    ui.painter().hline(
-        rect.x_range(),
-        rect.bottom() - 0.5,
-        Stroke::new(1.0, theme.palette.border),
-    );
-
-    response.inner
+        })
+        .inner
 }
 
 pub fn section<R>(
@@ -227,5 +224,28 @@ pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str, action: imp
         ui.add_space(theme.metrics.gap_md);
         action(ui);
         ui.add_space(theme.metrics.gap_xl);
+    });
+}
+
+pub fn checkbox_row(ui: &mut Ui, value: &mut bool, title: &str, description: &str) {
+    let theme = Theme::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = theme.metrics.gap_md;
+        super::controls::toggle(ui, value);
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new(title)
+                    .font(theme::medium(theme::size::BODY))
+                    .color(theme.palette.text),
+            );
+            if !description.is_empty() {
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(description)
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(theme.palette.text_muted),
+                );
+            }
+        });
     });
 }

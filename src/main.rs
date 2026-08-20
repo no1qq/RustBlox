@@ -8,6 +8,7 @@ mod platform;
 mod roblox;
 mod selfupdate;
 mod ui;
+mod uninstall;
 mod util;
 
 use std::process::ExitCode;
@@ -62,16 +63,28 @@ fn run(invocation: Invocation) -> Result<()> {
 
     let window = state.persisted.window.sanitised();
     let command = invocation.command_kind.clone();
+    let launcher = ui::starts_in_launcher(&command);
+
+    let size = if launcher {
+        [ui::launcher::WIDTH, ui::launcher::HEIGHT]
+    } else {
+        [window.width, window.height]
+    };
+    let minimum = if launcher {
+        [ui::launcher::WIDTH, ui::launcher::HEIGHT]
+    } else {
+        [WindowState::MIN_WIDTH, WindowState::MIN_HEIGHT]
+    };
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("RustBlox")
             .with_app_id("rustblox")
-            .with_inner_size([window.width, window.height])
-            .with_min_inner_size([WindowState::MIN_WIDTH, WindowState::MIN_HEIGHT])
-            .with_maximized(window.maximized)
+            .with_inner_size(size)
+            .with_min_inner_size(minimum)
+            .with_maximized(!launcher && window.maximized)
             .with_decorations(false)
-            .with_resizable(true)
+            .with_resizable(!launcher)
             .with_icon(ui::appicon::window_icon()),
         centered: true,
         ..Default::default()

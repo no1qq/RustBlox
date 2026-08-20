@@ -16,7 +16,6 @@ pub enum Tone {
 pub enum Size {
     Small,
     Regular,
-    Large,
 }
 
 impl Size {
@@ -24,7 +23,6 @@ impl Size {
         match self {
             Size::Small => theme.metrics.button_h - 6.0,
             Size::Regular => theme.metrics.button_h,
-            Size::Large => theme.metrics.button_h + 10.0,
         }
     }
 
@@ -32,7 +30,6 @@ impl Size {
         match self {
             Size::Small => theme::size::SMALL,
             Size::Regular => theme::size::BODY,
-            Size::Large => theme::size::SECTION,
         }
     }
 
@@ -40,7 +37,6 @@ impl Size {
         match self {
             Size::Small => 11.0,
             Size::Regular => 15.0,
-            Size::Large => 21.0,
         }
     }
 
@@ -48,7 +44,6 @@ impl Size {
         match self {
             Size::Small => 14.0,
             Size::Regular => 16.0,
-            Size::Large => 19.0,
         }
     }
 }
@@ -106,11 +101,6 @@ impl<'a> Button<'a> {
 
     pub fn min_width(mut self, width: f32) -> Self {
         self.min_width = width;
-        self
-    }
-
-    pub fn fill_width(mut self, fill: bool) -> Self {
-        self.fill_width = fill;
         self
     }
 

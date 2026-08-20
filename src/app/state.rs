@@ -830,6 +830,41 @@ impl AppState {
         self.refresh_protocol();
     }
 
+    pub fn uninstall(&mut self, remove_settings: bool) {
+        if self.roblox.player_running() {
+            self.toasts.warning(
+                "Close Roblox first",
+                Some("RustBlox cannot remove files the client is using.".into()),
+            );
+            return;
+        }
+
+        let plan = crate::uninstall::Plan {
+            remove_settings,
+            remove_executable: true,
+        };
+
+        log_info!("uninstalling, settings removed: {remove_settings}");
+        self.settings_dirty_at = None;
+        self.state_dirty = false;
+
+        let report = crate::uninstall::run(self.store.paths(), plan, self.exe_path.as_deref());
+        for problem in &report.problems {
+            log_warn!("uninstall: {problem}");
+        }
+
+        if report.problems.is_empty() {
+            log_info!("uninstall finished: {}", report.summary());
+            self.close_requested = true;
+            return;
+        }
+
+        self.toasts.error(
+            "Some files could not be removed",
+            Some(report.problems.join("; ")),
+        );
+    }
+
     pub fn open_path(&mut self, path: PathBuf) {
         if let Err(err) = platform::open_path(&path) {
             self.toasts

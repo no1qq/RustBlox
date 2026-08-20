@@ -242,7 +242,7 @@ fn active_card(
         widgets::separator(ui);
         ui.add_space(theme.metrics.gap_md);
 
-        widgets::nested(ui, |ui| {
+        ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = theme.metrics.gap_sm;
             widgets::detail_row(
                 ui,

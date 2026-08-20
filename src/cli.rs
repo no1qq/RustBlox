@@ -9,7 +9,7 @@ USAGE:
 OPTIONS:
     --forward <uri>   Hand a roblox: or roblox-player: link to the Roblox client
     --launch          Start Roblox using the configured startup target
-    --settings        Open the window on the Settings page
+    --settings        Open the full window on the Settings page
     --reset           Start with default settings, keeping the old file as a backup
     --portable        Keep configuration next to the executable instead of AppData
     -v, --version     Print the version and exit
