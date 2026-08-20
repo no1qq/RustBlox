@@ -4,7 +4,7 @@ pub const HELP: &str = "\
 RustBlox - a desktop client and launcher for Roblox
 
 USAGE:
-    rustblox [OPTIONS]
+    RustBlox [OPTIONS]
 
 OPTIONS:
     --forward <uri>   Hand a roblox: or roblox-player: link to the Roblox client

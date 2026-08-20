@@ -150,25 +150,7 @@ impl Integrity {
     }
 }
 
-pub fn parse_version(text: &str) -> Vec<u64> {
-    text.split(|c: char| !c.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<u64>().ok())
-        .collect()
-}
-
-pub fn compare_versions(left: &[u64], right: &[u64]) -> std::cmp::Ordering {
-    let len = left.len().max(right.len());
-    for index in 0..len {
-        let a = left.get(index).copied().unwrap_or(0);
-        let b = right.get(index).copied().unwrap_or(0);
-        match a.cmp(&b) {
-            std::cmp::Ordering::Equal => continue,
-            other => return other,
-        }
-    }
-    std::cmp::Ordering::Equal
-}
+pub use crate::util::version::{compare as compare_versions, parse as parse_version};
 
 pub fn directory_size(dir: &Path, depth: u32) -> Option<u64> {
     if depth > 6 {

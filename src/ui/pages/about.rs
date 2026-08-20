@@ -1,6 +1,8 @@
 use egui::{Align, Layout};
 
-use crate::app::AppState;
+use crate::app::{AppState, UpdatePhase};
+use crate::roblox::install::format_size;
+use crate::selfupdate;
 use crate::util::log;
 
 use crate::ui::icons::Icon;
@@ -8,12 +10,127 @@ use crate::ui::theme::{self, Theme};
 use crate::ui::widgets::{self, feedback};
 use crate::ui::UiState;
 
-const REPOSITORY: &str = "https://github.com/rustblox/rustblox";
+const REPOSITORY: &str = selfupdate::REPOSITORY;
+
+enum Action {
+    Check,
+    Download,
+    Restart,
+}
+
+fn updates(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    state: &AppState,
+    open_url: &mut Option<String>,
+    action: &mut Option<Action>,
+) {
+    let update = &state.app_update;
+    let busy = state.tasks.is_app_busy() || update.phase.is_busy();
+
+    widgets::section(
+        ui,
+        "Updates",
+        Some("RustBlox looks for a newer build on its GitHub releases page and never installs one without being asked."),
+        |ui| {
+            widgets::detail_row(ui, "This build", selfupdate::current_version(), false);
+            ui.add_space(theme.metrics.gap_sm);
+            widgets::detail_row(
+                ui,
+                "Newest release",
+                &match (&update.available, update.phase) {
+                    (Some(release), _) => release.version.clone(),
+                    (None, UpdatePhase::Checking) => "checking".into(),
+                    (None, _) => "up to date".into(),
+                },
+                false,
+            );
+
+            if update.phase == UpdatePhase::Downloading {
+                ui.add_space(theme.metrics.gap_md);
+                widgets::progress_bar(
+                    ui,
+                    update.fraction(),
+                    "Downloading the new build",
+                    &format!("{} of {}", format_size(update.done), format_size(update.total)),
+                );
+            }
+
+            if update.phase == UpdatePhase::Ready {
+                ui.add_space(theme.metrics.gap_md);
+                widgets::banner(
+                    ui,
+                    feedback::Tone::Success,
+                    "The new build is in place",
+                    "Restart RustBlox to start using it. The build you were running is kept until then.",
+                );
+            } else if let Some(release) = update.offered() {
+                ui.add_space(theme.metrics.gap_md);
+                widgets::banner(
+                    ui,
+                    feedback::Tone::Accent,
+                    &format!("RustBlox {} is out", release.version),
+                    "Downloading replaces the executable in place and keeps your settings, flags and installed Roblox copies.",
+                );
+            }
+
+            if let Some(message) = &update.message {
+                ui.add_space(theme.metrics.gap_sm);
+                widgets::banner(ui, feedback::Tone::Warning, "The update check had a problem", message);
+            }
+
+            ui.add_space(theme.metrics.gap_md);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+
+                if update.phase == UpdatePhase::Ready {
+                    if widgets::Button::primary("Restart now")
+                        .icon(Icon::Refresh)
+                        .show(ui)
+                        .clicked()
+                    {
+                        *action = Some(Action::Restart);
+                    }
+                } else if update.offered().is_some() {
+                    if widgets::Button::primary("Download and install")
+                        .icon(Icon::Package)
+                        .enabled(!busy)
+                        .show(ui)
+                        .clicked()
+                    {
+                        *action = Some(Action::Download);
+                    }
+                } else if widgets::Button::new("Check for updates")
+                    .icon(Icon::Refresh)
+                    .tone(widgets::Tone::Neutral)
+                    .enabled(!busy)
+                    .show(ui)
+                    .clicked()
+                {
+                    *action = Some(Action::Check);
+                }
+
+                if let Some(release) = &update.available {
+                    if widgets::Button::new("Release notes")
+                        .icon(Icon::External)
+                        .tone(widgets::Tone::Ghost)
+                        .size(widgets::Size::Small)
+                        .show(ui)
+                        .clicked()
+                    {
+                        *open_url = Some(release.page.clone());
+                    }
+                }
+            });
+        },
+    );
+}
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
     let mut open_url = None;
     let mut open_path = None;
+    let mut action = None;
 
     widgets::page_header(
         ui,
@@ -42,7 +159,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
                     .show(ui)
                     .clicked()
                 {
-                    open_url = Some(REPOSITORY);
+                    open_url = Some(REPOSITORY.to_owned());
                 }
             });
         });
@@ -81,6 +198,9 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
                 ui.add_space(theme.metrics.gap_sm);
             }
     });
+
+    ui.add_space(theme.metrics.gap_lg);
+    updates(ui, &theme, state, &mut open_url, &mut action);
 
     ui.add_space(theme.metrics.gap_lg);
 
@@ -213,9 +333,15 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     });
 
     if let Some(url) = open_url {
-        state.open_url(url);
+        state.open_url(&url);
     }
     if let Some(path) = open_path {
         state.open_path(path);
+    }
+    match action {
+        Some(Action::Check) => state.check_app_update(),
+        Some(Action::Download) => state.start_app_update(),
+        Some(Action::Restart) => state.restart_for_update(),
+        None => {}
     }
 }

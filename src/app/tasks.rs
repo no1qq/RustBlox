@@ -11,6 +11,7 @@ use crate::roblox::launch::{LaunchEvent, LaunchPlan, Launcher};
 use crate::roblox::process::RobloxStatus;
 use crate::roblox::versions::{self, Sweep};
 use crate::roblox::{detect, process};
+use crate::selfupdate::{self, Release};
 
 #[derive(Debug)]
 pub enum Update {
@@ -20,6 +21,14 @@ pub enum Update {
     Install(InstallEvent),
     Latest(Box<std::result::Result<Deployment, String>>),
     Swept(Sweep),
+    AppRelease(Box<std::result::Result<Option<Release>, String>>),
+    AppDownload(AppDownload),
+}
+
+#[derive(Clone, Debug)]
+pub enum AppDownload {
+    Progress { done: u64, total: u64 },
+    Finished(std::result::Result<(), String>),
 }
 
 pub struct Tasks {
@@ -30,6 +39,8 @@ pub struct Tasks {
     polling: bool,
     checking: bool,
     sweeping: bool,
+    app_checking: bool,
+    app_downloading: bool,
 }
 
 impl Default for Tasks {
@@ -43,6 +54,8 @@ impl Default for Tasks {
             polling: false,
             checking: false,
             sweeping: false,
+            app_checking: false,
+            app_downloading: false,
         }
     }
 }
@@ -62,6 +75,10 @@ impl Tasks {
 
     pub fn is_sweeping(&self) -> bool {
         self.sweeping
+    }
+
+    pub fn is_app_busy(&self) -> bool {
+        self.app_checking || self.app_downloading
     }
 
     fn channel(&self) -> (Sender<Update>, Option<egui::Context>) {
@@ -171,6 +188,35 @@ impl Tasks {
         });
     }
 
+    pub fn check_app_update(&mut self) {
+        if self.app_checking {
+            return;
+        }
+        self.app_checking = true;
+        self.spawn("selfupdate", move |emit| {
+            let found =
+                selfupdate::available(selfupdate::current_version()).map_err(|err| err.to_string());
+            emit(Update::AppRelease(Box::new(found)));
+        });
+    }
+
+    pub fn download_app_update(&mut self, release: Release, exe: PathBuf) {
+        if self.app_downloading {
+            return;
+        }
+        self.app_downloading = true;
+        self.spawn("selfdownload", move |emit| {
+            let staged = selfupdate::staged_path(&exe);
+            let total = release.size;
+            let outcome = selfupdate::download(&release, &staged, &|| false, &|done| {
+                emit(Update::AppDownload(AppDownload::Progress { done, total }));
+            })
+            .and_then(|_| selfupdate::swap_in(&staged, &exe))
+            .map_err(|err| err.to_string());
+            emit(Update::AppDownload(AppDownload::Finished(outcome)));
+        });
+    }
+
     pub fn drain(&mut self) -> Vec<Update> {
         let mut updates = Vec::new();
         while let Ok(update) = self.receiver.try_recv() {
@@ -179,6 +225,9 @@ impl Tasks {
                 Update::Processes(_) => self.polling = false,
                 Update::Latest(_) => self.checking = false,
                 Update::Swept(_) => self.sweeping = false,
+                Update::AppRelease(_) => self.app_checking = false,
+                Update::AppDownload(AppDownload::Finished(_)) => self.app_downloading = false,
+                Update::AppDownload(_) => {}
                 Update::Launch(_) | Update::Install(_) => {}
             }
             updates.push(update);

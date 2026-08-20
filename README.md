@@ -27,6 +27,7 @@ mod, an injector or an account tool.
   timestamped backup on every write.
 - Keeps settings, state and logs in a per-user folder, and survives a damaged or
   outdated configuration file without losing your data.
+- Updates itself from its own GitHub releases, on request rather than silently.
 
 ## Building
 
@@ -40,7 +41,7 @@ cargo test             # unit tests
 cargo clippy           # lints
 ```
 
-The release binary lands at `target/release/rustblox.exe`. It has no runtime
+The release binary lands at `target/release/RustBlox.exe`. It has no runtime
 dependencies beyond the system itself: fonts are loaded from the Windows font
 directory when available and fall back to the fonts compiled into the binary, and
 the icon and manifest are embedded by `build.rs`.
@@ -48,14 +49,14 @@ the icon and manifest are embedded by `build.rs`.
 ## Command line
 
 ```
-rustblox                    open the window
-rustblox --settings         open the window on the Settings page
-rustblox --launch           start Roblox using the configured startup target
-rustblox --forward <uri>    hand a roblox: or roblox-player: link to the client
-rustblox --portable         keep configuration next to the executable
-rustblox --reset            start with default settings, keeping the old file
-rustblox --version          print the version
-rustblox --help             print usage
+RustBlox                    open the window
+RustBlox --settings         open the window on the Settings page
+RustBlox --launch           start Roblox using the configured startup target
+RustBlox --forward <uri>    hand a roblox: or roblox-player: link to the client
+RustBlox --portable         keep configuration next to the executable
+RustBlox --reset            start with default settings, keeping the old file
+RustBlox --version          print the version
+RustBlox --help             print usage
 ```
 
 A bare `roblox:` or `roblox-player:` argument is treated as `--forward`. That is the
@@ -149,6 +150,23 @@ broken client. A test that runs against the live CDN checks the map is still com
   another launcher. An install somewhere else needs a custom path, which the
   Installation page accepts.
 
+## How RustBlox updates itself
+
+On startup RustBlox reads the releases list for `no1qq/RustBlox`, ignores drafts and
+prereleases, and picks the highest version tag that has a `RustBlox.exe` attached.
+If that tag is newer than the running build the About page offers it. Nothing is
+downloaded until you press the button.
+
+Installing one works the way the Roblox installer does. The new build is written next
+to the running executable as `RustBlox.exe.new`, checked for the `MZ` header and the
+size GitHub published, and only then swapped in: the running build is renamed to
+`RustBlox.exe.old` and the new one takes its place. If the swap fails the old build is
+put straight back. Windows will not let a running program be deleted, so the `.old`
+file stays until the next start, which clears it.
+
+Your settings, flag profile and installed Roblox copies live outside the executable
+and are untouched by an update.
+
 ## Project layout
 
 ```
@@ -160,10 +178,11 @@ src/
   config/         settings model, validation, migration, persistence
   platform/       Windows integration behind a portable interface
     windows/      process enumeration, file version info, shell, registry
+  selfupdate.rs   GitHub releases, download and in place swap
   roblox/         detection, deployment, installer, version housekeeping, launch
                   pipeline, URIs, flags
   ui/             theme, icons, widgets, pages, window chrome, launch overlay
-  util/           filesystem helpers, formatting, logging
+  util/           filesystem helpers, formatting, version compare, logging
 ```
 
 The layers only depend downward: `ui` reads `app`, `app` drives `roblox` and

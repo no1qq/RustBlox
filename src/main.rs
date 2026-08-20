@@ -6,6 +6,7 @@ mod config;
 mod error;
 mod platform;
 mod roblox;
+mod selfupdate;
 mod ui;
 mod util;
 
@@ -25,7 +26,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         CommandKind::Error(message) => {
-            print_to_console(&format!("rustblox: {message}\n"));
+            print_to_console(&format!("RustBlox: {message}\n"));
             ExitCode::FAILURE
         }
         _ => match run(invocation) {

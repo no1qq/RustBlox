@@ -6,7 +6,7 @@ rust-version = "1.85"
 description = "A modern desktop client and launcher for Roblox"
 authors = ["Julian"]
 license = "MIT"
-repository = "https://github.com/rustblox/rustblox"
+repository = "https://github.com/no1qq/RustBlox"
 build = "build.rs"
 
 [[bin]]

@@ -1,6 +1,6 @@
 @echo off
 REM Build helper for RustBlox. Pass "debug" for a debug build, anything else
-REM builds release. The exe is left in target\<profile>\rustblox.exe
+REM builds release. The exe is left in target\<profile>\RustBlox.exe
 
 setlocal
 set PROFILE=release
@@ -31,5 +31,5 @@ cargo test --quiet
 if errorlevel 1 exit /b 1
 
 echo.
-echo Done: target\%PROFILE%\rustblox.exe
+echo Done: target\%PROFILE%\RustBlox.exe
 endlocal

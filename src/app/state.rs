@@ -17,8 +17,9 @@ use crate::roblox::versions;
 use crate::{log_error, log_info, log_warn};
 
 use super::install_session::{InstallPhase, InstallSession};
+use super::selfupdate::AppUpdate;
 use super::session::{LaunchSession, Phase};
-use super::tasks::{Tasks, Update};
+use super::tasks::{AppDownload, Tasks, Update};
 use super::toast::{ToastKind, Toasts};
 
 pub use crate::roblox::uri::{SCHEME_DEEPLINK as DEEPLINK_SCHEME, SCHEME_PLAYER as PLAYER_SCHEME};
@@ -39,6 +40,7 @@ pub struct AppState {
     pub applied_flags: Option<FlagProfile>,
     pub session: LaunchSession,
     pub install: InstallSession,
+    pub app_update: AppUpdate,
     pub tasks: Tasks,
     pub toasts: Toasts,
     pub protocol: Option<SchemeRegistration>,
@@ -108,6 +110,7 @@ impl AppState {
             applied_flags: None,
             session: LaunchSession::default(),
             install: InstallSession::default(),
+            app_update: AppUpdate::default(),
             tasks: Tasks::default(),
             toasts: Toasts::default(),
             protocol: None,
@@ -124,6 +127,9 @@ impl AppState {
         };
 
         app.refresh_protocol();
+        if let Some(exe) = app.exe_path.clone() {
+            crate::selfupdate::clear_retired(&exe);
+        }
         app
     }
 
@@ -136,6 +142,7 @@ impl AppState {
             self.initial_scan_done = true;
             self.rescan();
             self.check_latest();
+            self.check_app_update();
         }
 
         for update in self.tasks.drain() {
@@ -221,6 +228,42 @@ impl AppState {
                 Err(message) => {
                     log_warn!("the latest version could not be checked: {message}");
                     self.latest_note = Some(message);
+                }
+            },
+            Update::AppRelease(found) => match *found {
+                Ok(Some(release)) => {
+                    log_info!("RustBlox {} is available", release.version);
+                    self.app_update.found(Some(release));
+                }
+                Ok(None) => self.app_update.found(None),
+                Err(message) => {
+                    log_warn!("the RustBlox release list could not be read: {message}");
+                    self.app_update.check_failed(message);
+                }
+            },
+            Update::AppDownload(AppDownload::Progress { done, total }) => {
+                self.app_update.progress(done, total)
+            }
+            Update::AppDownload(AppDownload::Finished(outcome)) => match outcome {
+                Ok(()) => {
+                    let version = self
+                        .app_update
+                        .available
+                        .as_ref()
+                        .map(|release| release.version.clone())
+                        .unwrap_or_default();
+                    log_info!("RustBlox {version} is staged and takes effect on restart");
+                    self.app_update.ready();
+                    self.toasts.push(
+                        ToastKind::Success,
+                        format!("RustBlox {version} is ready"),
+                        Some("Restart RustBlox to finish updating.".into()),
+                    );
+                }
+                Err(message) => {
+                    log_error!("the RustBlox update failed: {message}");
+                    self.app_update.failed(message.clone());
+                    self.toasts.error("The update failed", Some(message));
                 }
             },
             Update::Swept(sweep) => {
@@ -421,6 +464,57 @@ impl AppState {
     pub fn check_latest(&mut self) {
         self.tasks
             .check_latest(self.settings.advanced.channel.clone());
+    }
+
+    pub fn check_app_update(&mut self) {
+        if self.tasks.is_app_busy() {
+            return;
+        }
+        self.app_update.begin_check();
+        self.tasks.check_app_update();
+    }
+
+    pub fn start_app_update(&mut self) {
+        if self.tasks.is_app_busy() {
+            return;
+        }
+        let Some(release) = self.app_update.available.clone() else {
+            return;
+        };
+        let Some(exe) = self.exe_path.clone() else {
+            self.toasts.error(
+                "The RustBlox executable could not be located",
+                Some("Updating needs a real path on disk.".into()),
+            );
+            return;
+        };
+
+        log_info!(
+            "downloading RustBlox {} from {}",
+            release.version,
+            release.url
+        );
+        self.app_update.begin_download(release.size);
+        self.tasks.download_app_update(release, exe);
+    }
+
+    pub fn restart_for_update(&mut self) {
+        let Some(exe) = self.exe_path.clone() else {
+            return;
+        };
+        match platform::spawn_detached(&exe, &[], exe.parent()) {
+            Ok(_) => {
+                log_info!("restarting into the new build");
+                self.close_requested = true;
+            }
+            Err(err) => {
+                log_error!("the new build could not be started: {err}");
+                self.toasts.error(
+                    "RustBlox could not restart itself",
+                    Some(format!("{err} Close and open RustBlox yourself to finish.")),
+                );
+            }
+        }
     }
 
     pub fn managed_folders(&self) -> Vec<String> {
