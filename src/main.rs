@@ -72,7 +72,7 @@ fn run(invocation: Invocation) -> Result<()> {
             .with_maximized(window.maximized)
             .with_decorations(false)
             .with_resizable(true)
-            .with_icon(window_icon()),
+            .with_icon(ui::appicon::window_icon()),
         centered: true,
         ..Default::default()
     };
@@ -83,75 +83,6 @@ fn run(invocation: Invocation) -> Result<()> {
         Box::new(move |cc| Ok(Box::new(ui::RustBloxApp::new(cc, state, &command)))),
     )
     .map_err(|err| error::Error::invalid(format!("the window could not be created: {err}")))
-}
-
-fn window_icon() -> egui::IconData {
-    const SIDE: usize = 64;
-    let mut rgba = vec![0u8; SIDE * SIDE * 4];
-
-    let accent = [255u8, 122, 69];
-    let backdrop = [23u8, 26, 34];
-    let radius = 13.0;
-
-    for y in 0..SIDE {
-        for x in 0..SIDE {
-            let index = (y * SIDE + x) * 4;
-            let inside = rounded_rect_coverage(x as f32, y as f32, SIDE as f32, radius);
-            if inside <= 0.0 {
-                continue;
-            }
-
-            let glyph = glyph_coverage(x as f32, y as f32, SIDE as f32);
-            let base = if glyph > 0.5 { accent } else { backdrop };
-
-            rgba[index] = base[0];
-            rgba[index + 1] = base[1];
-            rgba[index + 2] = base[2];
-            rgba[index + 3] = (inside * 255.0) as u8;
-        }
-    }
-
-    egui::IconData {
-        rgba,
-        width: SIDE as u32,
-        height: SIDE as u32,
-    }
-}
-
-fn rounded_rect_coverage(x: f32, y: f32, side: f32, radius: f32) -> f32 {
-    let half = side / 2.0;
-    let dx = (x - half + 0.5).abs() - (half - radius);
-    let dy = (y - half + 0.5).abs() - (half - radius);
-    let distance = if dx > 0.0 && dy > 0.0 {
-        (dx * dx + dy * dy).sqrt() - radius
-    } else {
-        dx.max(dy) - radius
-    };
-    (0.5 - distance).clamp(0.0, 1.0)
-}
-
-fn glyph_coverage(x: f32, y: f32, side: f32) -> f32 {
-    let nx = x / side;
-    let ny = y / side;
-
-    let apex_x = 0.5;
-    let apex_y = 0.22;
-    let base_y = 0.76;
-
-    if ny < apex_y || ny > base_y {
-        return 0.0;
-    }
-
-    let progress = (ny - apex_y) / (base_y - apex_y);
-    let half_width = progress * 0.28;
-    let outer = (nx - apex_x).abs() <= half_width;
-    let inner = (nx - apex_x).abs() <= (half_width - 0.075).max(0.0) && ny > apex_y + 0.16;
-
-    if outer && !inner {
-        1.0
-    } else {
-        0.0
-    }
 }
 
 fn print_to_console(text: &str) {

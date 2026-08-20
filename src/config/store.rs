@@ -184,7 +184,7 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::model::{Accent, QuickTarget, Theme, WindowState};
+    use crate::config::model::{Accent, QuickTarget, ThemeMode, WindowState};
 
     fn store() -> (tempfile::TempDir, Store) {
         let dir = tempfile::tempdir().unwrap();
@@ -206,7 +206,7 @@ mod tests {
         let (_dir, store) = store();
 
         let mut settings = Settings::default();
-        settings.appearance.theme = Theme::Daylight;
+        settings.appearance.mode = ThemeMode::Light;
         settings.appearance.accent = Accent::Lagoon;
         settings.launch.launch_timeout_secs = 45;
         settings.launch.quick_targets.push(QuickTarget {
@@ -218,6 +218,25 @@ mod tests {
         let loaded = store.load_settings();
 
         assert_eq!(loaded.value, settings);
+        assert!(!loaded.recovered);
+    }
+
+    #[test]
+    fn a_file_from_the_named_theme_era_keeps_its_other_settings() {
+        let (_dir, store) = store();
+        let path = store.paths().settings_file();
+        crate::util::fs::write_atomic(
+            &path,
+            br#"{"version": 1, "appearance": {"theme": "Daylight", "accent": "Lagoon"},
+                 "launch": {"launch_timeout_secs": 45}}"#,
+        )
+        .unwrap();
+
+        let loaded = store.load_settings();
+
+        assert_eq!(loaded.value.appearance.mode, ThemeMode::Light);
+        assert_eq!(loaded.value.appearance.accent, Accent::Lagoon);
+        assert_eq!(loaded.value.launch.launch_timeout_secs, 45);
         assert!(!loaded.recovered);
     }
 
@@ -256,12 +275,12 @@ mod tests {
     fn out_of_range_values_are_repaired_with_a_note() {
         let (_dir, store) = store();
         let path = store.paths().settings_file();
-        crate::util::fs::write_atomic(
-            &path,
-            br#"{"version": 1, "launch": {"launch_timeout_secs": 9000},
-                 "appearance": {"ui_scale": 12.0}}"#,
-        )
-        .unwrap();
+        let body = format!(
+            r#"{{"version": {}, "launch": {{"launch_timeout_secs": 9000}},
+                 "appearance": {{"ui_scale": 12.0}}}}"#,
+            crate::config::migrate::CURRENT_VERSION
+        );
+        crate::util::fs::write_atomic(&path, body.as_bytes()).unwrap();
 
         let loaded = store.load_settings();
 

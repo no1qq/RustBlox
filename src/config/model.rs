@@ -137,7 +137,7 @@ impl StartupTarget {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct AppearanceSettings {
-    pub theme: Theme,
+    pub mode: ThemeMode,
     pub accent: Accent,
     pub density: Density,
     pub ui_scale: f32,
@@ -147,7 +147,7 @@ pub struct AppearanceSettings {
 impl Default for AppearanceSettings {
     fn default() -> Self {
         Self {
-            theme: Theme::Midnight,
+            mode: ThemeMode::Auto,
             accent: Accent::Ember,
             density: Density::Comfortable,
             ui_scale: 1.0,
@@ -177,21 +177,37 @@ impl AppearanceSettings {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub enum Theme {
+pub enum ThemeMode {
     #[default]
-    Midnight,
-    Graphite,
-    Daylight,
+    Auto,
+    Light,
+    Dark,
 }
 
-impl Theme {
-    pub const ALL: [Theme; 3] = [Theme::Midnight, Theme::Graphite, Theme::Daylight];
+impl ThemeMode {
+    pub const ALL: [ThemeMode; 3] = [ThemeMode::Auto, ThemeMode::Light, ThemeMode::Dark];
 
     pub fn label(self) -> &'static str {
         match self {
-            Theme::Midnight => "Midnight",
-            Theme::Graphite => "Graphite",
-            Theme::Daylight => "Daylight",
+            ThemeMode::Auto => "Automatic",
+            ThemeMode::Light => "Light",
+            ThemeMode::Dark => "Dark",
+        }
+    }
+
+    pub fn detail(self) -> &'static str {
+        match self {
+            ThemeMode::Auto => "Follows Windows",
+            ThemeMode::Light => "Always light",
+            ThemeMode::Dark => "Always dark",
+        }
+    }
+
+    pub fn is_dark(self, system_is_dark: bool) -> bool {
+        match self {
+            ThemeMode::Auto => system_is_dark,
+            ThemeMode::Light => false,
+            ThemeMode::Dark => true,
         }
     }
 }
@@ -227,7 +243,7 @@ impl Accent {
 
     pub fn rgb(self) -> [u8; 3] {
         match self {
-            Accent::Ember => [255, 122, 69],
+            Accent::Ember => [251, 86, 6],
             Accent::Aurora => [86, 204, 157],
             Accent::Lagoon => [77, 154, 255],
             Accent::Violet => [163, 129, 255],

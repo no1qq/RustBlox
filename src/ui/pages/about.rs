@@ -31,7 +31,7 @@ fn updates(
     widgets::section(
         ui,
         "Updates",
-        Some("RustBlox looks for a newer build on its GitHub releases page and never installs one without being asked."),
+        Some("Checked on startup. Nothing installs until you ask."),
         |ui| {
             widgets::detail_row(ui, "This build", selfupdate::current_version(), false);
             ui.add_space(theme.metrics.gap_sm);
@@ -52,7 +52,11 @@ fn updates(
                     ui,
                     update.fraction(),
                     "Downloading the new build",
-                    &format!("{} of {}", format_size(update.done), format_size(update.total)),
+                    &format!(
+                        "{} of {}",
+                        format_size(update.done),
+                        format_size(update.total)
+                    ),
                 );
             }
 
@@ -62,7 +66,7 @@ fn updates(
                     ui,
                     feedback::Tone::Success,
                     "The new build is in place",
-                    "Restart RustBlox to start using it. The build you were running is kept until then.",
+                    "Restart to start using it.",
                 );
             } else if let Some(release) = update.offered() {
                 ui.add_space(theme.metrics.gap_md);
@@ -70,13 +74,18 @@ fn updates(
                     ui,
                     feedback::Tone::Accent,
                     &format!("RustBlox {} is out", release.version),
-                    "Downloading replaces the executable in place and keeps your settings, flags and installed Roblox copies.",
+                    "Keeps your settings, flags and installed copies.",
                 );
             }
 
             if let Some(message) = &update.message {
                 ui.add_space(theme.metrics.gap_sm);
-                widgets::banner(ui, feedback::Tone::Warning, "The update check had a problem", message);
+                widgets::banner(
+                    ui,
+                    feedback::Tone::Warning,
+                    "The update check had a problem",
+                    message,
+                );
             }
 
             ui.add_space(theme.metrics.gap_md);
@@ -132,12 +141,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let mut open_path = None;
     let mut action = None;
 
-    widgets::page_header(
-        ui,
-        "About",
-        "What this build is and what it can do.",
-        |_| {},
-    );
+    widgets::page_header(ui, "About", "Build details and updates.", |_| {});
 
     widgets::card(ui, |ui| {
         ui.horizontal(|ui| {

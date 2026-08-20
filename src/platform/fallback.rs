@@ -49,3 +49,7 @@ pub fn attach_parent_console() {}
 pub fn free_space(_path: &Path) -> Option<u64> {
     None
 }
+
+pub fn system_dark_mode() -> Option<bool> {
+    None
+}

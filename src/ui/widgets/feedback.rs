@@ -1,4 +1,4 @@
-use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align2, Color32, Rect, Sense, Stroke, Ui, Vec2};
 
 use crate::ui::icons::{self, Icon};
 use crate::ui::theme::{self, Theme};
@@ -43,22 +43,21 @@ pub fn badge(ui: &mut Ui, text: &str, tone: Tone) {
         .painter()
         .layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER);
 
-    let size = Vec2::new(galley.size().x + 18.0, 21.0);
+    let size = Vec2::new(galley.size().x + 14.0, 18.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
 
-    ui.painter().rect_filled(
-        rect,
-        egui::CornerRadius::same(10),
-        color.gamma_multiply(0.15),
-    );
-    ui.painter().rect_stroke(
-        rect,
-        egui::CornerRadius::same(10),
-        Stroke::new(1.0, color.gamma_multiply(0.35)),
-        StrokeKind::Inside,
-    );
+    let fill = match tone {
+        Tone::Neutral => theme.palette.surface_alt,
+        _ => color.gamma_multiply(0.14),
+    };
+    let ink = match tone {
+        Tone::Neutral => theme.palette.text_muted,
+        _ => color,
+    };
+
+    ui.painter().rect_filled(rect, theme.radius_sm(), fill);
     ui.painter()
-        .text(rect.center(), Align2::CENTER_CENTER, text, font, color);
+        .text(rect.center(), Align2::CENTER_CENTER, text, font, ink);
 }
 
 pub fn status_pill(ui: &mut Ui, text: &str, tone: Tone, pulsing: bool) {
@@ -69,16 +68,13 @@ pub fn status_pill(ui: &mut Ui, text: &str, tone: Tone, pulsing: bool) {
         .painter()
         .layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER);
 
-    let size = Vec2::new(galley.size().x + 34.0, 27.0);
+    let size = Vec2::new(galley.size().x + 30.0, 24.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
 
-    ui.painter().rect_filled(
-        rect,
-        egui::CornerRadius::same(13),
-        color.gamma_multiply(0.13),
-    );
+    ui.painter()
+        .rect_filled(rect, theme.radius_sm(), theme.palette.surface_alt);
 
-    let dot = egui::pos2(rect.left() + 13.0, rect.center().y);
+    let dot = egui::pos2(rect.left() + 12.0, rect.center().y);
     if pulsing && theme.metrics.animations {
         let time = ui.input(|input| input.time);
         let wave = ((time * 2.0).sin() as f32 * 0.5 + 0.5).clamp(0.0, 1.0);
@@ -92,11 +88,11 @@ pub fn status_pill(ui: &mut Ui, text: &str, tone: Tone, pulsing: bool) {
     ui.painter().circle_filled(dot, 4.0, color);
 
     ui.painter().text(
-        egui::pos2(rect.left() + 23.0, rect.center().y),
+        egui::pos2(rect.left() + 21.0, rect.center().y),
         Align2::LEFT_CENTER,
         text,
         font,
-        color,
+        theme.palette.text,
     );
 }
 
@@ -105,9 +101,9 @@ pub fn banner(ui: &mut Ui, tone: Tone, title: &str, body: &str) {
     let color = tone.color(&theme);
 
     egui::Frame::new()
-        .fill(color.gamma_multiply(0.1))
-        .stroke(Stroke::new(1.0, color.gamma_multiply(0.32)))
-        .corner_radius(theme.radius_md())
+        .fill(color.gamma_multiply(0.08))
+        .stroke(Stroke::new(1.0, color.gamma_multiply(0.24)))
+        .corner_radius(theme.radius_sm())
         .inner_margin(egui::Margin::symmetric(
             theme.metrics.gap_md as i8,
             theme.metrics.gap_md as i8,

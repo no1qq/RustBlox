@@ -33,7 +33,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     widgets::page_header(
         ui,
         "Installation",
-        "Where RustBlox finds the Roblox client and how launches reach it.",
+        "Where the client lives and how launches reach it.",
         |ui| {
             if widgets::Button::new("Rescan")
                 .icon(Icon::Refresh)
@@ -55,7 +55,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
                     ui,
                     Icon::Search,
                     "No installation selected",
-                    "Nothing was found in the locations listed below. Choose a folder that contains RobloxPlayerBeta.exe, or a folder with a Versions subfolder.",
+                    "Pick a folder holding RobloxPlayerBeta.exe, or one with a Versions subfolder.",
                     |_| {},
                 );
             });
@@ -98,18 +98,13 @@ fn managed_install(
     widgets::section(
         ui,
         "Download from Roblox",
-        Some("RustBlox fetches the official packages, checks each one against the checksum Roblox publishes, and unpacks them itself."),
+        Some("Official packages, checksummed and unpacked by RustBlox."),
         |ui| {
             widgets::detail_row(ui, "Release channel", &channel, false);
             ui.add_space(theme.metrics.gap_sm);
             widgets::detail_row(ui, "Installs into", &root.display().to_string(), true);
             ui.add_space(theme.metrics.gap_sm);
-            widgets::detail_row(
-                ui,
-                "Copies managed here",
-                &owned.to_string(),
-                false,
-            );
+            widgets::detail_row(ui, "Copies managed here", &owned.to_string(), false);
             ui.add_space(theme.metrics.gap_sm);
             widgets::detail_row(
                 ui,
@@ -177,7 +172,7 @@ fn managed_install(
                 ui,
                 feedback::Tone::Info,
                 "This does not touch your other copies",
-                "RustBlox only ever writes inside its own Versions folder. A copy installed by Roblox itself is read, never modified.",
+                "A copy installed by Roblox itself is read, never modified.",
             );
         },
     );
@@ -310,7 +305,7 @@ fn all_installs(
     widgets::section(
         ui,
         "Detected installations",
-        Some("Pinning keeps RustBlox on one version even after Roblox updates. Removing deletes the folder from disk."),
+        Some("Pinning survives updates. Removing deletes the folder."),
         |ui| {
             if installs.is_empty() {
                 ui.label(
@@ -454,7 +449,7 @@ fn search_locations(
     widgets::section(
         ui,
         "Search locations",
-        Some("RustBlox checks its own Versions folder first, then a folder you pick, then a normal Roblox install."),
+        Some("Checked in order, first match wins."),
         |ui| {
             widgets::setting_row(
                 ui,
@@ -647,7 +642,7 @@ fn integrations(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut
                 ui,
                 feedback::Tone::Info,
                 "What taking over does",
-                "RustBlox saves the current handler, then registers itself. Incoming links are validated and passed to the Roblox client unchanged, so the sign-in ticket from the website still works. Hand back restores exactly what was there before.");
+                "The current handler is saved first. Links are passed to the client unchanged, so the sign-in ticket still works. Hand back restores what was there before.");
         },
     );
 }

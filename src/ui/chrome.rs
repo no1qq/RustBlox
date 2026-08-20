@@ -5,6 +5,7 @@ use egui::{
 use crate::app::AppState;
 use crate::roblox::launch::LaunchTarget;
 
+use super::appicon;
 use super::icons::{self, Icon};
 use super::theme::{self, Theme};
 use super::widgets::{self, feedback};
@@ -140,21 +141,18 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mu
             .send_viewport_cmd(ViewportCommand::Maximized(!maximized));
     }
 
-    ui.painter().text(
-        egui::pos2(rect.left() + 16.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        "RustBlox",
-        theme::medium(theme::size::SMALL),
-        palette.text,
+    let mark = Rect::from_min_size(
+        egui::pos2(rect.left() + 12.0, rect.center().y - 8.0),
+        Vec2::splat(16.0),
     );
+    appicon::paint(ui, mark, theme.radius_sm());
 
-    let page_label = ui_state.page.label();
     ui.painter().text(
-        egui::pos2(rect.left() + 16.0 + 74.0, rect.center().y),
+        egui::pos2(mark.right() + 10.0, rect.center().y),
         Align2::LEFT_CENTER,
-        format!("/  {page_label}"),
-        theme::text_style(theme::size::SMALL),
-        palette.text_faint,
+        ui_state.page.label(),
+        theme::medium(theme::size::SMALL),
+        palette.text_muted,
     );
 
     if state.roblox.player_running() {
@@ -165,24 +163,19 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mu
                 .layout_no_wrap(text.clone(), font.clone(), egui::Color32::PLACEHOLDER);
         let pill = Rect::from_center_size(
             egui::pos2(rect.center().x, rect.center().y),
-            Vec2::new(galley.size().x + 30.0, 22.0),
-        );
-        ui.painter().rect_filled(
-            pill,
-            egui::CornerRadius::same(11),
-            palette.success.gamma_multiply(0.14),
+            Vec2::new(galley.size().x + 26.0, 20.0),
         );
         ui.painter().circle_filled(
-            egui::pos2(pill.left() + 12.0, pill.center().y),
-            3.5,
+            egui::pos2(pill.left() + 8.0, pill.center().y),
+            3.0,
             palette.success,
         );
         ui.painter().text(
-            egui::pos2(pill.left() + 21.0, pill.center().y),
+            egui::pos2(pill.left() + 17.0, pill.center().y),
             Align2::LEFT_CENTER,
             text,
             font,
-            palette.success,
+            palette.text_muted,
         );
     }
 

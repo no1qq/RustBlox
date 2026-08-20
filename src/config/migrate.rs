@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Migration {
@@ -32,6 +32,10 @@ type Step = fn(&mut Map<String, Value>);
 fn steps_for(version: u32) -> Option<(&'static str, Step)> {
     match version {
         0 => Some(("adopted the versioned settings layout", step_v0_to_v1)),
+        1 => Some((
+            "replaced the named themes with a light and dark mode",
+            step_v1_to_v2,
+        )),
         _ => None,
     }
 }
@@ -42,6 +46,22 @@ fn step_v0_to_v1(root: &mut Map<String, Value>) {
             root.insert(section.into(), Value::Object(Map::new()));
         }
     }
+}
+
+fn step_v1_to_v2(root: &mut Map<String, Value>) {
+    let Some(appearance) = root.get_mut("appearance").and_then(Value::as_object_mut) else {
+        return;
+    };
+
+    let mode = match appearance.remove("theme").as_ref().and_then(Value::as_str) {
+        Some("Daylight") => "Light",
+        Some("Midnight") | Some("Graphite") => "Dark",
+        _ => "Auto",
+    };
+
+    appearance
+        .entry("mode")
+        .or_insert_with(|| Value::from(mode));
 }
 
 pub fn migrate(value: &mut Value) -> Migration {
@@ -116,6 +136,51 @@ mod tests {
         let mut value = json!({"launch": {"close_after_launch": true}});
         migrate(&mut value);
         assert_eq!(value["launch"]["close_after_launch"], json!(true));
+    }
+
+    #[test]
+    fn the_light_theme_becomes_light_mode() {
+        let mut value =
+            json!({"version": 1, "appearance": {"theme": "Daylight", "accent": "Lime"}});
+        migrate(&mut value);
+
+        assert_eq!(value["appearance"]["mode"], json!("Light"));
+        assert_eq!(value["appearance"]["accent"], json!("Lime"));
+        assert!(value["appearance"].get("theme").is_none());
+    }
+
+    #[test]
+    fn the_dark_themes_become_dark_mode() {
+        for named in ["Midnight", "Graphite"] {
+            let mut value = json!({"version": 1, "appearance": {"theme": named}});
+            migrate(&mut value);
+            assert_eq!(value["appearance"]["mode"], json!("Dark"), "{named}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_theme_falls_back_to_following_windows() {
+        let mut value = json!({"version": 1, "appearance": {"theme": "Neon"}});
+        migrate(&mut value);
+        assert_eq!(value["appearance"]["mode"], json!("Auto"));
+    }
+
+    #[test]
+    fn a_file_with_no_theme_at_all_still_migrates() {
+        let mut value = json!({"version": 1, "appearance": {}});
+        migrate(&mut value);
+        assert_eq!(value["appearance"]["mode"], json!("Auto"));
+        assert_eq!(value["version"], json!(CURRENT_VERSION));
+    }
+
+    #[test]
+    fn an_unversioned_file_walks_every_step() {
+        let mut value = json!({"appearance": {"theme": "Graphite"}});
+        let outcome = migrate(&mut value);
+
+        assert!(matches!(outcome, Migration::Upgraded { from: 0, .. }));
+        assert_eq!(value["appearance"]["mode"], json!("Dark"));
+        assert_eq!(value["version"], json!(CURRENT_VERSION));
     }
 
     #[test]

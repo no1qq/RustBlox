@@ -29,7 +29,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     widgets::page_header(
         ui,
         "Flags",
-        "Client settings written to ClientAppSettings.json before Roblox starts.",
+        "Written to ClientAppSettings.json before Roblox starts.",
         |ui| {
             if widgets::Button::primary("Save profile")
                 .icon(Icon::Check)

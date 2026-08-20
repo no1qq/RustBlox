@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui::{Color32, CornerRadius, FontFamily, FontId, Margin, Stroke};
 
-use crate::config::{Accent, AppearanceSettings, Density, Theme as ThemeChoice};
+use crate::config::{Accent, AppearanceSettings, Density};
 
 pub const FAMILY_MEDIUM: &str = "rustblox-medium";
 pub const FAMILY_STRONG: &str = "rustblox-strong";
@@ -60,9 +60,9 @@ pub struct Theme {
 }
 
 impl Theme {
-    pub fn from_settings(settings: &AppearanceSettings) -> Self {
+    pub fn from_settings(settings: &AppearanceSettings, system_is_dark: bool) -> Self {
         Self {
-            palette: palette_for(settings.theme, settings.accent),
+            palette: palette_for(settings.mode.is_dark(system_is_dark), settings.accent),
             metrics: metrics_for(settings.density, settings.animations),
         }
     }
@@ -73,7 +73,7 @@ impl Theme {
 
     pub fn get(ctx: &egui::Context) -> Self {
         ctx.data(|data| data.get_temp::<Theme>(theme_key()))
-            .unwrap_or_else(|| Theme::from_settings(&AppearanceSettings::default()))
+            .unwrap_or_else(|| Theme::from_settings(&AppearanceSettings::default(), true))
     }
 
     pub fn radius_sm(&self) -> CornerRadius {
@@ -122,93 +122,100 @@ fn darken(color: Color32, amount: f32) -> Color32 {
     Color32::from_rgb(mix(color.r()), mix(color.g()), mix(color.b()))
 }
 
+const INK: Color32 = Color32::from_rgb(0x17, 0x18, 0x1B);
+const LIGHT_WINDOW: Color32 = Color32::from_rgb(0xF4, 0xF4, 0xF5);
+
+fn relative_luminance(color: Color32) -> f32 {
+    let channel = |value: u8| {
+        let value = value as f32 / 255.0;
+        if value <= 0.03928 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
+}
+
+fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+    let (x, y) = (relative_luminance(a), relative_luminance(b));
+    let (high, low) = if x > y { (x, y) } else { (y, x) };
+    (high + 0.05) / (low + 0.05)
+}
+
+fn darkened_until_readable(color: Color32, against: Color32) -> Color32 {
+    let mut amount = 0.16;
+    let mut result = darken(color, amount);
+    while contrast_ratio(against, result) < 4.6 && amount < 0.8 {
+        amount += 0.04;
+        result = darken(color, amount);
+    }
+    result
+}
+
 fn readable_on(color: Color32) -> Color32 {
-    let luminance =
-        0.2126 * color.r() as f32 + 0.7152 * color.g() as f32 + 0.0722 * color.b() as f32;
-    if luminance > 150.0 {
-        rgb(0x10131A)
+    if contrast_ratio(INK, color) >= contrast_ratio(Color32::WHITE, color) {
+        INK
     } else {
         Color32::WHITE
     }
 }
 
-fn palette_for(choice: ThemeChoice, accent: Accent) -> Palette {
+fn palette_for(is_dark: bool, accent: Accent) -> Palette {
     let [r, g, b] = accent.rgb();
-    let accent = Color32::from_rgb(r, g, b);
+    let raw = Color32::from_rgb(r, g, b);
 
-    match choice {
-        ThemeChoice::Midnight => Palette {
-            window: rgb(0x0E1015),
-            sidebar: rgb(0x12141B),
-            surface: rgb(0x171A22),
-            surface_alt: rgb(0x1D212B),
-            surface_hover: rgb(0x232834),
-            surface_press: rgb(0x2A2F3D),
-            border: rgb(0x252A35),
-            border_strong: rgb(0x353C4C),
-            text: rgb(0xE9EBF1),
-            text_muted: rgb(0x99A1B3),
-            text_faint: rgb(0x6A7387),
-            accent,
-            accent_hover: lighten(accent, 0.12),
-            accent_press: darken(accent, 0.12),
-            accent_soft: accent.gamma_multiply(0.16),
-            on_accent: readable_on(accent),
-            success: rgb(0x4FC48D),
-            warning: rgb(0xE9B457),
-            danger: rgb(0xF06B62),
-            info: rgb(0x5EA8F0),
-            scrim: Color32::from_black_alpha(190),
+    if is_dark {
+        Palette {
+            window: rgb(0x161719),
+            sidebar: rgb(0x111214),
+            surface: rgb(0x1C1D20),
+            surface_alt: rgb(0x232427),
+            surface_hover: rgb(0x2A2B2F),
+            surface_press: rgb(0x313236),
+            border: rgb(0x27282C),
+            border_strong: rgb(0x3B3C42),
+            text: rgb(0xEDEEF0),
+            text_muted: rgb(0x9A9CA3),
+            text_faint: rgb(0x6C6E76),
+            accent: raw,
+            accent_hover: lighten(raw, 0.14),
+            accent_press: darken(raw, 0.14),
+            accent_soft: raw.gamma_multiply(0.14),
+            on_accent: readable_on(raw),
+            success: rgb(0x53C08A),
+            warning: rgb(0xE0A845),
+            danger: rgb(0xE8645C),
+            info: rgb(0x5FA3E8),
+            scrim: Color32::from_black_alpha(185),
             is_dark: true,
-        },
-        ThemeChoice::Graphite => Palette {
-            window: rgb(0x18181B),
-            sidebar: rgb(0x1D1D21),
-            surface: rgb(0x232327),
-            surface_alt: rgb(0x2A2A2F),
-            surface_hover: rgb(0x313137),
-            surface_press: rgb(0x38383F),
-            border: rgb(0x32323A),
-            border_strong: rgb(0x45454F),
-            text: rgb(0xEDEDF0),
-            text_muted: rgb(0xA2A2AC),
-            text_faint: rgb(0x74747F),
-            accent,
-            accent_hover: lighten(accent, 0.12),
-            accent_press: darken(accent, 0.12),
-            accent_soft: accent.gamma_multiply(0.16),
-            on_accent: readable_on(accent),
-            success: rgb(0x54C793),
-            warning: rgb(0xE7B45C),
-            danger: rgb(0xEE6E66),
-            info: rgb(0x62A9EE),
-            scrim: Color32::from_black_alpha(190),
-            is_dark: true,
-        },
-        ThemeChoice::Daylight => Palette {
-            window: rgb(0xF3F5F9),
+        }
+    } else {
+        let ink = darkened_until_readable(raw, LIGHT_WINDOW);
+        Palette {
+            window: LIGHT_WINDOW,
             sidebar: rgb(0xFFFFFF),
             surface: rgb(0xFFFFFF),
-            surface_alt: rgb(0xF1F3F8),
-            surface_hover: rgb(0xE8EBF2),
-            surface_press: rgb(0xDDE2EC),
-            border: rgb(0xE1E5EE),
-            border_strong: rgb(0xC7CDDA),
-            text: rgb(0x141821),
-            text_muted: rgb(0x5B6478),
-            text_faint: rgb(0x8A92A4),
-            accent: darken(accent, 0.12),
-            accent_hover: darken(accent, 0.02),
-            accent_press: darken(accent, 0.26),
-            accent_soft: accent.gamma_multiply(0.18),
-            on_accent: readable_on(darken(accent, 0.12)),
-            success: rgb(0x1B8B5F),
-            warning: rgb(0xA97614),
-            danger: rgb(0xC93F3B),
-            info: rgb(0x1F6FBE),
-            scrim: Color32::from_black_alpha(120),
+            surface_alt: rgb(0xF1F1F3),
+            surface_hover: rgb(0xE9E9EC),
+            surface_press: rgb(0xDEDEE2),
+            border: rgb(0xE3E3E6),
+            border_strong: rgb(0xC5C5CB),
+            text: rgb(0x17181B),
+            text_muted: rgb(0x5B5D64),
+            text_faint: rgb(0x8A8C93),
+            accent: ink,
+            accent_hover: lighten(ink, 0.10),
+            accent_press: darken(ink, 0.18),
+            accent_soft: raw.gamma_multiply(0.16),
+            on_accent: readable_on(ink),
+            success: rgb(0x18784F),
+            warning: rgb(0x8F6410),
+            danger: rgb(0xB93732),
+            info: rgb(0x1C5FA6),
+            scrim: Color32::from_black_alpha(110),
             is_dark: false,
-        },
+        }
     }
 }
 
@@ -224,9 +231,9 @@ fn metrics_for(density: Density, animations: bool) -> Metrics {
         gap_xl: round(28.0).max(20.0),
         card_pad: round(18.0).max(13.0),
         page_pad: round(26.0).max(18.0),
-        radius_sm: 6,
-        radius_md: 10,
-        radius_lg: 14,
+        radius_sm: 3,
+        radius_md: 5,
+        radius_lg: 7,
         control_h: round(34.0).max(28.0),
         button_h: round(36.0).max(30.0),
         row_h: round(44.0).max(36.0),
@@ -425,4 +432,104 @@ pub fn apply_style(ctx: &egui::Context, theme: &Theme, scale: f32) {
     ctx.set_style_of(egui::Theme::Dark, style.clone());
     ctx.set_style_of(egui::Theme::Light, style);
     ctx.set_pixels_per_point(scale);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contrast_ratio as contrast;
+    use super::*;
+    use crate::config::ThemeMode;
+
+    fn settings(mode: ThemeMode) -> AppearanceSettings {
+        AppearanceSettings {
+            mode,
+            ..AppearanceSettings::default()
+        }
+    }
+
+    #[test]
+    fn automatic_follows_windows_both_ways() {
+        assert!(
+            Theme::from_settings(&settings(ThemeMode::Auto), true)
+                .palette
+                .is_dark
+        );
+        assert!(
+            !Theme::from_settings(&settings(ThemeMode::Auto), false)
+                .palette
+                .is_dark
+        );
+    }
+
+    #[test]
+    fn a_manual_choice_ignores_windows() {
+        for system_is_dark in [true, false] {
+            assert!(
+                Theme::from_settings(&settings(ThemeMode::Dark), system_is_dark)
+                    .palette
+                    .is_dark
+            );
+            assert!(
+                !Theme::from_settings(&settings(ThemeMode::Light), system_is_dark)
+                    .palette
+                    .is_dark
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_is_to_follow_windows() {
+        assert_eq!(AppearanceSettings::default().mode, ThemeMode::Auto);
+    }
+
+    #[test]
+    fn text_stays_readable_against_the_background_in_both_modes() {
+        for is_dark in [true, false] {
+            let palette = palette_for(is_dark, Accent::Ember);
+            assert!(
+                contrast(palette.text, palette.window) >= 7.0,
+                "body text contrast is too low in {}",
+                if is_dark { "dark" } else { "light" }
+            );
+            assert!(
+                contrast(palette.text_muted, palette.window) >= 4.5,
+                "muted text contrast is too low in {}",
+                if is_dark { "dark" } else { "light" }
+            );
+            assert!(
+                contrast(palette.accent, palette.window) >= 4.5,
+                "accent contrast is too low in {}",
+                if is_dark { "dark" } else { "light" }
+            );
+        }
+    }
+
+    #[test]
+    fn a_label_on_the_accent_stays_readable() {
+        for is_dark in [true, false] {
+            let palette = palette_for(is_dark, Accent::Ember);
+            assert!(contrast(palette.on_accent, palette.accent) >= 4.5);
+        }
+    }
+
+    #[test]
+    fn every_accent_gets_a_readable_label_on_top_of_it() {
+        for accent in Accent::ALL {
+            for is_dark in [true, false] {
+                let palette = palette_for(is_dark, accent);
+                assert!(
+                    contrast(palette.on_accent, palette.accent) >= 4.5,
+                    "{} is unreadable in {} mode",
+                    accent.label(),
+                    if is_dark { "dark" } else { "light" }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_default_accent_is_the_logo_orange() {
+        assert_eq!(Accent::Ember.rgb(), [251, 86, 6]);
+        assert_eq!(Accent::default(), Accent::Ember);
+    }
 }

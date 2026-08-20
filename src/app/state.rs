@@ -27,6 +27,7 @@ pub use crate::roblox::uri::{SCHEME_DEEPLINK as DEEPLINK_SCHEME, SCHEME_PLAYER a
 const IDLE_POLL: Duration = Duration::from_millis(2500);
 const BUSY_POLL: Duration = Duration::from_millis(900);
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(600);
+const THEME_PROBE: Duration = Duration::from_millis(900);
 
 pub struct AppState {
     pub store: Store,
@@ -45,6 +46,7 @@ pub struct AppState {
     pub toasts: Toasts,
     pub protocol: Option<SchemeRegistration>,
     pub deeplink: Option<SchemeRegistration>,
+    pub system_dark: bool,
     pub startup_notes: Vec<String>,
     pub exe_path: Option<PathBuf>,
     pub forwarding: bool,
@@ -54,6 +56,7 @@ pub struct AppState {
     settings_dirty_at: Option<Instant>,
     state_dirty: bool,
     last_poll: Instant,
+    last_theme_probe: Instant,
     initial_scan_done: bool,
 }
 
@@ -115,6 +118,7 @@ impl AppState {
             toasts: Toasts::default(),
             protocol: None,
             deeplink: None,
+            system_dark: platform::system_dark_mode().unwrap_or(true),
             startup_notes,
             exe_path: std::env::current_exe().ok(),
             forwarding: false,
@@ -123,6 +127,7 @@ impl AppState {
             settings_dirty_at: None,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
+            last_theme_probe: Instant::now() - THEME_PROBE,
             initial_scan_done: false,
         };
 
@@ -162,6 +167,13 @@ impl AppState {
         if let Some(since) = self.settings_dirty_at {
             if since.elapsed() >= SAVE_DEBOUNCE {
                 self.flush_settings();
+            }
+        }
+
+        if self.last_theme_probe.elapsed() >= THEME_PROBE {
+            self.last_theme_probe = Instant::now();
+            if let Some(dark) = platform::system_dark_mode() {
+                self.system_dark = dark;
             }
         }
 

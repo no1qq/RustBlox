@@ -1,7 +1,7 @@
 use egui::{Align, Layout};
 
 use crate::app::AppState;
-use crate::config::{Accent, AppearanceSettings, Density, StartupTarget, Theme as ThemeChoice};
+use crate::config::{Accent, AppearanceSettings, Density, StartupTarget, ThemeMode};
 
 use crate::ui::icons::Icon;
 use crate::ui::theme::{self, Theme};
@@ -14,7 +14,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     widgets::page_header(
         ui,
         "Settings",
-        "Every option here changes real behaviour.",
+        "Everything here takes effect immediately.",
         |ui| {
             if state.settings_pending() {
                 widgets::badge(ui, "Saving", feedback::Tone::Accent);
@@ -70,7 +70,7 @@ fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
     widgets::section(
         ui,
         "Stored data",
-        Some("Settings live in a per-user folder, never next to the executable unless you pass --portable."),
+        Some("Stored per user unless you pass --portable."),
         |ui| {
             widgets::detail_row(
                 ui,
@@ -222,33 +222,44 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
 fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
     let mut changed = false;
 
-    widgets::section(ui, "Theme", None, |ui| {
-        let options: Vec<(ThemeChoice, &str)> = ThemeChoice::ALL
+    let mode = state.settings.appearance.mode;
+    let following = if state.system_dark {
+        "Windows is set to dark"
+    } else {
+        "Windows is set to light"
+    };
+
+    widgets::section(ui, "Appearance", None, |ui| {
+        let options: Vec<(ThemeMode, &str)> = ThemeMode::ALL
             .iter()
             .map(|choice| (*choice, choice.label()))
             .collect();
-        widgets::setting_row(ui, "Colour scheme", "Applies immediately.", |ui| {
-            changed |= Segmented::new(&options)
-                .show(ui, &mut state.settings.appearance.theme)
-                .changed();
-        });
-
-        ui.add_space(theme.metrics.gap_md);
         widgets::setting_row(
             ui,
-            "Accent",
-            "Used for primary actions and highlights.",
+            "Light or dark",
+            if mode == ThemeMode::Auto {
+                following
+            } else {
+                mode.detail()
+            },
             |ui| {
-                let mut selected = state.settings.appearance.accent;
-                for accent in Accent::ALL.iter().rev() {
-                    if accent_swatch(ui, theme, *accent, selected == *accent) {
-                        selected = *accent;
-                        changed = true;
-                    }
-                }
-                state.settings.appearance.accent = selected;
+                changed |= Segmented::new(&options)
+                    .show(ui, &mut state.settings.appearance.mode)
+                    .changed();
             },
         );
+
+        ui.add_space(theme.metrics.gap_md);
+        widgets::setting_row(ui, "Accent", "Used for the main action.", |ui| {
+            let mut selected = state.settings.appearance.accent;
+            for accent in Accent::ALL.iter().rev() {
+                if accent_swatch(ui, theme, *accent, selected == *accent) {
+                    selected = *accent;
+                    changed = true;
+                }
+            }
+            state.settings.appearance.accent = selected;
+        });
     });
 
     ui.add_space(theme.metrics.gap_lg);
@@ -258,16 +269,11 @@ fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
             .iter()
             .map(|density| (*density, density.label()))
             .collect();
-        widgets::setting_row(
-            ui,
-            "Density",
-            "Compact tightens spacing throughout the interface.",
-            |ui| {
-                changed |= Segmented::new(&options)
-                    .show(ui, &mut state.settings.appearance.density)
-                    .changed();
-            },
-        );
+        widgets::setting_row(ui, "Density", "Compact tightens spacing.", |ui| {
+            changed |= Segmented::new(&options)
+                .show(ui, &mut state.settings.appearance.density)
+                .changed();
+        });
 
         ui.add_space(theme.metrics.gap_md);
         widgets::setting_row(
@@ -391,7 +397,7 @@ fn advanced(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &m
     widgets::section(
         ui,
         "Extra player arguments",
-        Some("Appended after the launch argument. Leave empty unless you know what a switch does."),
+        Some("Appended after the launch argument."),
         |ui| {
             let buffer = ui_state
                 .extra_args_buffer
@@ -426,7 +432,7 @@ fn advanced(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &m
     widgets::section(
         ui,
         "Downloading Roblox",
-        Some("Used by the install and update buttons on the Installation page."),
+        Some("Used by the Installation page."),
         |ui| {
             let buffer = ui_state
                 .channel_buffer

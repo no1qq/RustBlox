@@ -1,4 +1,6 @@
 mod chrome;
+
+pub mod appicon;
 mod install_overlay;
 mod overlay;
 mod pages;
@@ -142,7 +144,7 @@ impl RustBloxApp {
     }
 
     fn sync_theme(&mut self, ctx: &egui::Context) {
-        let theme = Theme::from_settings(&self.state.settings.appearance);
+        let theme = Theme::from_settings(&self.state.settings.appearance, self.state.system_dark);
         let scale = self.state.settings.appearance.ui_scale;
 
         if self.applied_theme != Some(theme) || (self.applied_scale - scale).abs() > f32::EPSILON {
@@ -180,9 +182,9 @@ impl RustBloxApp {
 
 impl eframe::App for RustBloxApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        let theme = self
-            .applied_theme
-            .unwrap_or_else(|| Theme::from_settings(&self.state.settings.appearance));
+        let theme = self.applied_theme.unwrap_or_else(|| {
+            Theme::from_settings(&self.state.settings.appearance, self.state.system_dark)
+        });
         let color = theme.palette.window;
         [
             color.r() as f32 / 255.0,

@@ -17,19 +17,14 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let installed = state.detection.active().is_some();
 
     let mut rescan = false;
-    widgets::page_header(
-        ui,
-        "Home",
-        "Launch Roblox and keep an eye on the client.",
-        |ui| {
-            rescan = widgets::Button::new("Rescan")
-                .icon(Icon::Refresh)
-                .tone(widgets::Tone::Ghost)
-                .enabled(!state.tasks.is_scanning())
-                .show(ui)
-                .clicked();
-        },
-    );
+    widgets::page_header(ui, "Home", "Launch Roblox and watch the client.", |ui| {
+        rescan = widgets::Button::new("Rescan")
+            .icon(Icon::Refresh)
+            .tone(widgets::Tone::Ghost)
+            .enabled(!state.tasks.is_scanning())
+            .show(ui)
+            .clicked();
+    });
     if rescan {
         state.rescan();
     }
@@ -241,7 +236,7 @@ fn quick_launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state
     widgets::section(
         ui,
         "Quick launch",
-        Some("Saved places open through the Roblox deep link handler."),
+        Some("Opened through the Roblox deep link handler."),
         |ui| {
             if state.settings.launch.quick_targets.is_empty() {
                 widgets::nested(ui, |ui| {

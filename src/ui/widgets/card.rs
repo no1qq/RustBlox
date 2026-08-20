@@ -8,7 +8,7 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     Frame::new()
         .fill(theme.palette.surface)
         .stroke(theme.hairline())
-        .corner_radius(theme.radius_lg())
+        .corner_radius(theme.radius_md())
         .inner_margin(theme.card_margin())
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -19,18 +19,21 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 pub fn nested<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let theme = Theme::get(ui.ctx());
-    Frame::new()
-        .fill(theme.palette.surface_alt)
-        .corner_radius(theme.radius_md())
-        .inner_margin(egui::Margin::symmetric(
-            theme.metrics.gap_md as i8,
-            theme.metrics.gap_sm as i8,
-        ))
+    let response = Frame::new()
+        .inner_margin(egui::Margin::symmetric(0, theme.metrics.gap_sm as i8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)
-        })
-        .inner
+        });
+
+    let rect = response.response.rect;
+    ui.painter().hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0, theme.palette.border),
+    );
+
+    response.inner
 }
 
 pub fn section<R>(
@@ -40,17 +43,31 @@ pub fn section<R>(
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
     let theme = Theme::get(ui.ctx());
-    card(ui, |ui| {
+    ui.vertical(|ui| {
+        ui.set_width(ui.available_width());
         heading(ui, &theme, title, subtitle);
+        ui.add_space(theme.metrics.gap_sm);
+        rule(ui, &theme);
         ui.add_space(theme.metrics.gap_md);
         add(ui)
     })
+    .inner
+}
+
+fn rule(ui: &mut Ui, theme: &Theme) {
+    let (rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().hline(
+        rect.x_range(),
+        rect.center().y,
+        Stroke::new(1.0, theme.palette.border),
+    );
 }
 
 pub fn heading(ui: &mut Ui, theme: &Theme, title: &str, subtitle: Option<&str>) {
     ui.label(
         egui::RichText::new(title)
-            .font(theme::strong(theme::size::SECTION))
+            .font(theme::medium(theme::size::SECTION))
             .color(theme.palette.text),
     );
     if let Some(subtitle) = subtitle {
@@ -179,15 +196,13 @@ pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str, action: imp
     ui.vertical_centered(|ui| {
         ui.add_space(theme.metrics.gap_xl);
 
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(52.0), egui::Sense::hover());
-        ui.painter()
-            .rect_filled(rect, theme.radius_lg(), theme.palette.surface_alt);
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(44.0), egui::Sense::hover());
         icons::draw(
             ui.painter(),
             icon,
-            rect.shrink(15.0),
+            rect.shrink(9.0),
             theme.palette.text_faint,
-            1.8,
+            1.6,
         );
 
         ui.add_space(theme.metrics.gap_md);

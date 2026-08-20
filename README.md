@@ -28,6 +28,7 @@ mod, an injector or an account tool.
 - Keeps settings, state and logs in a per-user folder, and survives a damaged or
   outdated configuration file without losing your data.
 - Updates itself from its own GitHub releases, on request rather than silently.
+- Follows the Windows light and dark setting, or stays on whichever you pick.
 
 ## Building
 
@@ -150,6 +151,19 @@ broken client. A test that runs against the live CDN checks the map is still com
   another launcher. An install somewhere else needs a custom path, which the
   Installation page accepts.
 
+## Light and dark
+
+Appearance is one setting with three positions: Automatic, Light and Dark.
+Automatic is the default and reads the Windows setting
+(`HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme`),
+rechecking about once a second so flipping Windows to dark changes RustBlox while it
+is open. Light and Dark ignore Windows entirely, and switching back to Automatic
+picks the system setting straight back up.
+
+The accent defaults to the orange from the icon. In light mode it is darkened until a
+label on top of it clears the WCAG AA contrast ratio, which a test enforces for every
+accent in both modes.
+
 ## How RustBlox updates itself
 
 On startup RustBlox reads the releases list for `no1qq/RustBlox`, ignores drafts and
@@ -181,7 +195,7 @@ src/
   selfupdate.rs   GitHub releases, download and in place swap
   roblox/         detection, deployment, installer, version housekeeping, launch
                   pipeline, URIs, flags
-  ui/             theme, icons, widgets, pages, window chrome, launch overlay
+  ui/             theme, icons, app icon, widgets, pages, chrome, overlays
   util/           filesystem helpers, formatting, version compare, logging
 ```
 

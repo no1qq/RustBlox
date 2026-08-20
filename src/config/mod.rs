@@ -5,7 +5,7 @@ mod store;
 
 pub use model::{
     Accent, AppearanceSettings, Density, LaunchOutcome, LaunchRecord, QuickTarget, Settings,
-    StartupTarget, State, Theme, WindowState,
+    StartupTarget, State, ThemeMode, WindowState,
 };
 pub use paths::Paths;
 pub use store::Store;

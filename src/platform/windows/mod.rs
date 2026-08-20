@@ -280,3 +280,17 @@ pub fn free_space(path: &Path) -> Option<u64> {
         Some(available)
     }
 }
+
+pub fn system_dark_mode() -> Option<bool> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+    use winreg::RegKey;
+
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            KEY_READ,
+        )
+        .ok()?;
+    let light: u32 = key.get_value("AppsUseLightTheme").ok()?;
+    Some(light == 0)
+}
