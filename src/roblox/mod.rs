@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+pub mod activity;
 pub mod deploy;
 pub mod detect;
 pub mod flags;
@@ -18,4 +19,8 @@ pub fn local_dir() -> Option<PathBuf> {
         return None;
     }
     Some(PathBuf::from(local).join("Roblox"))
+}
+
+pub fn log_dir() -> Option<PathBuf> {
+    Some(local_dir()?.join("logs"))
 }

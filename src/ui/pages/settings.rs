@@ -158,6 +158,17 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
             ui.add_space(theme.metrics.gap_md);
             widgets::setting_row(
                 ui,
+                "Watch what you are playing",
+                "Reads the game you are in out of the client's own log, on this PC only. Nothing is sent anywhere.",
+                |ui| {
+                    changed |=
+                        widgets::toggle(ui, &mut state.settings.launch.track_activity).changed();
+                },
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
                 "Ask before launching",
                 "Shows a short confirmation naming the target before anything starts.",
                 |ui| {

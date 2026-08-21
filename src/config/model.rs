@@ -54,6 +54,7 @@ pub struct LaunchSettings {
     pub update_roblox_on_launch: bool,
     pub launch_timeout_secs: u64,
     pub quick_targets: Vec<QuickTarget>,
+    pub track_activity: bool,
     pub integrations: Vec<Integration>,
 }
 
@@ -66,6 +67,7 @@ impl Default for LaunchSettings {
             update_roblox_on_launch: true,
             launch_timeout_secs: 30,
             quick_targets: Vec::new(),
+            track_activity: true,
             integrations: Vec::new(),
         }
     }

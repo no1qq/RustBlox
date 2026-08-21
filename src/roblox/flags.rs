@@ -336,7 +336,7 @@ const DENIED_MARKER: &str = "Denied local configuration for: ";
 const LOG_SCAN_BYTES: usize = 128 * 1024;
 
 pub fn client_log_dir() -> Option<PathBuf> {
-    Some(super::local_dir()?.join("logs"))
+    super::log_dir()
 }
 
 pub fn denied_by_client(log_dir: &Path) -> Vec<String> {

@@ -137,7 +137,9 @@ fn hero(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
 
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    let (tone, label) = if running {
+                    let (tone, label) = if running && state.activity.in_game {
+                        (feedback::Tone::Success, state.activity.summary())
+                    } else if running {
                         (feedback::Tone::Success, state.roblox.summary())
                     } else {
                         (feedback::Tone::Neutral, "Client idle".to_string())

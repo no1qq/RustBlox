@@ -7,6 +7,7 @@ use crate::cli::Invocation;
 use crate::config::{LaunchOutcome, LaunchRecord, Settings, StartupTarget, State, Store};
 use crate::error::Result;
 use crate::platform::{self, SchemeRegistration};
+use crate::roblox::activity::{self, Activity};
 use crate::roblox::deploy::Deployment;
 use crate::roblox::detect::{Detection, ScanOptions};
 use crate::roblox::flags::{self, FlagProfile};
@@ -33,6 +34,7 @@ const BUSY_POLL: Duration = Duration::from_millis(900);
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(600);
 const THEME_PROBE: Duration = Duration::from_millis(900);
 const DENIED_PROBE: Duration = Duration::from_secs(5);
+const ACTIVITY_PROBE: Duration = Duration::from_secs(3);
 
 pub struct AppState {
     pub store: Store,
@@ -42,6 +44,7 @@ pub struct AppState {
     pub latest: Option<Deployment>,
     pub latest_note: Option<String>,
     pub roblox: RobloxStatus,
+    pub activity: Activity,
     pub flags: FlagProfile,
     pub denied_flags: Vec<String>,
     pub game: Snapshot,
@@ -67,6 +70,7 @@ pub struct AppState {
     game_checked_at: Option<Instant>,
     mods_checked_at: Option<Instant>,
     shortcuts_checked_at: Option<Instant>,
+    activity_checked_at: Option<Instant>,
     state_dirty: bool,
     last_poll: Instant,
     last_theme_probe: Instant,
@@ -122,6 +126,7 @@ impl AppState {
             latest: None,
             latest_note: None,
             roblox: RobloxStatus::default(),
+            activity: Activity::default(),
             flags,
             denied_flags: Vec::new(),
             game: Snapshot::default(),
@@ -146,6 +151,7 @@ impl AppState {
             game_checked_at: None,
             mods_checked_at: None,
             shortcuts_checked_at: None,
+            activity_checked_at: None,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
             last_theme_probe: Instant::now() - THEME_PROBE,
@@ -209,6 +215,7 @@ impl AppState {
             }
         }
 
+        self.refresh_activity();
         self.toasts.retire_expired();
     }
 
@@ -906,6 +913,31 @@ impl AppState {
             changes: self.settings.game.changes(),
             lock: self.settings.game.lock,
         })
+    }
+
+    fn refresh_activity(&mut self) {
+        if !self.settings.launch.track_activity || !self.roblox.player_running() {
+            if self.activity != Activity::default() {
+                self.activity = Activity::default();
+            }
+            return;
+        }
+
+        if self
+            .activity_checked_at
+            .is_some_and(|at| at.elapsed() < ACTIVITY_PROBE)
+        {
+            return;
+        }
+        self.activity_checked_at = Some(Instant::now());
+
+        let found = crate::roblox::log_dir()
+            .map(|dir| activity::read(&dir))
+            .unwrap_or_default();
+        if !found.is_same_place(&self.activity) {
+            log_info!("activity: {}", found.summary());
+        }
+        self.activity = found;
     }
 
     pub fn refresh_shortcuts(&mut self, force: bool) {
