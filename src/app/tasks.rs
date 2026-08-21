@@ -73,10 +73,6 @@ impl Tasks {
         self.checking
     }
 
-    pub fn is_sweeping(&self) -> bool {
-        self.sweeping
-    }
-
     pub fn is_app_busy(&self) -> bool {
         self.app_checking || self.app_downloading
     }
@@ -165,25 +161,6 @@ impl Tasks {
         self.spawn("cleanup", move |emit| {
             let mut sweep = versions::prune_versions(&versions_root, &keep_versions);
             sweep.absorb(versions::tidy_downloads(&downloads_root, &keep_downloads));
-            emit(Update::Swept(sweep));
-        });
-    }
-
-    pub fn remove_version(&mut self, versions_root: PathBuf, folder: String) {
-        if self.sweeping {
-            return;
-        }
-        self.sweeping = true;
-        self.spawn("remove", move |emit| {
-            let dir = versions::version_dir(&versions_root, &folder);
-            let mut sweep = Sweep::default();
-            match versions::remove_version(&versions_root, &dir) {
-                Ok(freed) => {
-                    sweep.removed.push(folder);
-                    sweep.reclaimed = freed;
-                }
-                Err(err) => sweep.problems.push(err.to_string()),
-            }
             emit(Update::Swept(sweep));
         });
     }

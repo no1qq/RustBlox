@@ -14,21 +14,14 @@ use crate::ui::widgets::{self, feedback};
 use crate::ui::UiState;
 
 enum Action {
-    Select(String),
-    Pin(Option<String>),
-    Remove(String),
     OpenPath(PathBuf),
-    ClearCustomRoot,
-    PickCustomRoot,
-    Rescan,
     Register(&'static str),
     Restore(&'static str),
     Install { force: bool },
 }
 
-pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
+pub fn render(ui: &mut egui::Ui, state: &mut AppState, _ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
-    let advanced = state.settings.advanced_mode;
     let mut action = None;
 
     if state.latest.is_none() && state.latest_note.is_none() {
@@ -39,17 +32,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         ui,
         "Installation",
         "The copy of Roblox RustBlox keeps for itself.",
-        |ui| {
-            if widgets::Button::new("Rescan")
-                .icon(Icon::Refresh)
-                .tone(widgets::Tone::Ghost)
-                .enabled(!state.tasks.is_scanning())
-                .show(ui)
-                .clicked()
-            {
-                action = Some(Action::Rescan);
-            }
-        },
+        |_| {},
     );
 
     match state.detection.active().cloned() {
@@ -69,15 +52,8 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
 
     ui.add_space(theme.metrics.gap_lg);
     managed_install(ui, &theme, state, &mut action);
-
-    if advanced {
-        ui.add_space(theme.metrics.gap_lg);
-        all_installs(ui, &theme, state, ui_state, &mut action);
-        ui.add_space(theme.metrics.gap_lg);
-        search_locations(ui, &theme, state, ui_state, &mut action);
-        ui.add_space(theme.metrics.gap_lg);
-        integrations(ui, &theme, state, &mut action);
-    }
+    ui.add_space(theme.metrics.gap_lg);
+    integrations(ui, &theme, state, &mut action);
 
     if let Some(action) = action {
         apply(state, action);
@@ -293,263 +269,6 @@ fn active_card(
     });
 }
 
-fn all_installs(
-    ui: &mut egui::Ui,
-    theme: &Theme,
-    state: &AppState,
-    ui_state: &mut UiState,
-    action: &mut Option<Action>,
-) {
-    let installs = state.detection.installations.clone();
-    let active = state
-        .detection
-        .active()
-        .map(|install| install.folder_id.clone());
-    let pinned = state.settings.advanced.pinned_version_folder.clone();
-    let managed = state.managed_folders();
-    let busy = state.tasks.is_sweeping();
-    let mut arm: Option<Option<String>> = None;
-
-    widgets::section(
-        ui,
-        "Detected installations",
-        Some("Pinning survives updates. Removing deletes the folder."),
-        |ui| {
-            if installs.is_empty() {
-                ui.label(
-                    egui::RichText::new("Nothing detected yet.")
-                        .font(theme::text_style(theme::size::SMALL))
-                        .color(theme.palette.text_muted),
-                );
-                return;
-            }
-
-            for install in &installs {
-                let is_active = active.as_deref() == Some(install.folder_id.as_str());
-                let is_pinned = pinned.as_deref() == Some(install.folder_id.as_str());
-                let is_ours = managed.iter().any(|folder| folder == &install.folder_id);
-                let is_armed =
-                    ui_state.pending_removal.as_deref() == Some(install.folder_id.as_str());
-
-                widgets::nested(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
-                            ui.set_width((ui.available_width() - 250.0).max(80.0));
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new(install.display_version())
-                                        .font(theme::medium(theme::size::BODY))
-                                        .color(theme.palette.text),
-                                );
-                                if is_active {
-                                    widgets::badge(ui, "Active", feedback::Tone::Accent);
-                                }
-                                if is_pinned {
-                                    widgets::badge(ui, "Pinned", feedback::Tone::Info);
-                                }
-                            });
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{} - {}",
-                                    install.source.short(),
-                                    install.folder_id
-                                ))
-                                .font(theme::text_style(theme::size::MICRO))
-                                .color(theme.palette.text_faint),
-                            );
-                        });
-
-                        if is_armed {
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if widgets::Button::new("Delete it")
-                                    .icon(Icon::Trash)
-                                    .tone(widgets::Tone::Danger)
-                                    .size(widgets::Size::Small)
-                                    .enabled(!busy)
-                                    .show(ui)
-                                    .clicked()
-                                {
-                                    *action = Some(Action::Remove(install.folder_id.clone()));
-                                    arm = Some(None);
-                                }
-
-                                if widgets::Button::new("Cancel")
-                                    .tone(widgets::Tone::Ghost)
-                                    .size(widgets::Size::Small)
-                                    .show(ui)
-                                    .clicked()
-                                {
-                                    arm = Some(None);
-                                }
-
-                                ui.label(
-                                    egui::RichText::new("Remove this folder from disk?")
-                                        .font(theme::text_style(theme::size::SMALL))
-                                        .color(theme.palette.text_muted),
-                                );
-                            });
-                            return;
-                        }
-
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if is_ours
-                                && !is_active
-                                && widgets::icon_button(ui, Icon::Trash, "Remove", !busy).clicked()
-                            {
-                                arm = Some(Some(install.folder_id.clone()));
-                            }
-
-                            if widgets::icon_button(
-                                ui,
-                                Icon::Pin,
-                                if is_pinned {
-                                    "Unpin"
-                                } else {
-                                    "Pin this version"
-                                },
-                                true,
-                            )
-                            .clicked()
-                            {
-                                *action = Some(Action::Pin(if is_pinned {
-                                    None
-                                } else {
-                                    Some(install.folder_id.clone())
-                                }));
-                            }
-
-                            if widgets::icon_button(ui, Icon::Folder, "Open folder", true).clicked()
-                            {
-                                *action = Some(Action::OpenPath(install.version_dir.clone()));
-                            }
-
-                            if widgets::Button::new("Use")
-                                .size(widgets::Size::Small)
-                                .enabled(!is_active)
-                                .show(ui)
-                                .clicked()
-                            {
-                                *action = Some(Action::Select(install.folder_id.clone()));
-                            }
-                        });
-                    });
-                });
-                ui.add_space(theme.metrics.gap_sm);
-            }
-        },
-    );
-
-    if let Some(next) = arm {
-        ui_state.pending_removal = next;
-    }
-}
-
-fn search_locations(
-    ui: &mut egui::Ui,
-    theme: &Theme,
-    state: &AppState,
-    ui_state: &mut UiState,
-    action: &mut Option<Action>,
-) {
-    let custom = state.settings.advanced.custom_install_root.clone();
-    let searched = state.detection.searched.clone();
-
-    widgets::section(
-        ui,
-        "Search locations",
-        Some("Checked in order, first match wins."),
-        |ui| {
-            widgets::setting_row(
-                ui,
-                "Custom install folder",
-                &custom
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| "Not set".into()),
-                |ui| {
-                    if widgets::Button::new("Browse")
-                        .icon(Icon::Folder)
-                        .size(widgets::Size::Small)
-                        .show(ui)
-                        .clicked()
-                    {
-                        *action = Some(Action::PickCustomRoot);
-                    }
-                    if custom.is_some()
-                        && widgets::Button::new("Clear")
-                            .tone(widgets::Tone::Ghost)
-                            .size(widgets::Size::Small)
-                            .show(ui)
-                            .clicked()
-                    {
-                        *action = Some(Action::ClearCustomRoot);
-                    }
-                },
-            );
-
-            ui.add_space(theme.metrics.gap_md);
-
-            let label = if ui_state.show_searched_paths {
-                "Hide checked folders"
-            } else {
-                "Show checked folders"
-            };
-            if widgets::Button::new(label)
-                .icon(if ui_state.show_searched_paths {
-                    Icon::ChevronDown
-                } else {
-                    Icon::ChevronRight
-                })
-                .tone(widgets::Tone::Quiet)
-                .size(widgets::Size::Small)
-                .show(ui)
-                .clicked()
-            {
-                ui_state.show_searched_paths = !ui_state.show_searched_paths;
-            }
-
-            if ui_state.show_searched_paths {
-                ui.add_space(theme.metrics.gap_sm);
-                widgets::nested(ui, |ui| {
-                    for path in &searched {
-                        let exists = path.is_dir();
-                        ui.horizontal(|ui| {
-                            widgets::badge(
-                                ui,
-                                if exists { "found" } else { "absent" },
-                                if exists {
-                                    feedback::Tone::Success
-                                } else {
-                                    feedback::Tone::Neutral
-                                },
-                            );
-                            ui.label(
-                                egui::RichText::new(path.display().to_string())
-                                    .font(egui::FontId::new(
-                                        theme::size::MICRO,
-                                        egui::FontFamily::Monospace,
-                                    ))
-                                    .color(theme.palette.text_muted),
-                            );
-                        });
-                    }
-                });
-            }
-
-            if !state.detection.notes.is_empty() {
-                ui.add_space(theme.metrics.gap_sm);
-                for note in &state.detection.notes {
-                    ui.label(
-                        egui::RichText::new(note)
-                            .font(theme::text_style(theme::size::MICRO))
-                            .color(theme.palette.text_faint),
-                    );
-                }
-            }
-        },
-    );
-}
-
 fn integrations(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
     widgets::section(
         ui,
@@ -655,37 +374,7 @@ fn integrations(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut
 
 fn apply(state: &mut AppState, action: Action) {
     match action {
-        Action::Rescan => {
-            state.rescan();
-            state.check_latest();
-        }
-        Action::Remove(folder) => state.remove_version(folder),
-        Action::Select(folder) => {
-            if state.detection.select_folder(&folder) {
-                state.refresh_applied_flags();
-            }
-        }
-        Action::Pin(folder) => {
-            state.settings.advanced.pinned_version_folder = folder;
-            state.mark_settings_dirty();
-            state.flush_settings();
-            state.rescan();
-        }
         Action::OpenPath(path) => state.open_path(path),
-        Action::ClearCustomRoot => {
-            state.settings.advanced.custom_install_root = None;
-            state.mark_settings_dirty();
-            state.flush_settings();
-            state.rescan();
-        }
-        Action::PickCustomRoot => {
-            if let Some(folder) = state.pick_install_folder() {
-                state.settings.advanced.custom_install_root = Some(folder);
-                state.mark_settings_dirty();
-                state.flush_settings();
-                state.rescan();
-            }
-        }
         Action::Install { force } => state.install_roblox(force),
         Action::Register(scheme) => state.register_protocol(scheme),
         Action::Restore(scheme) => state.restore_protocol(scheme),

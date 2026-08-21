@@ -14,14 +14,13 @@ enum Action {
     Toggle(String),
     Edit { key: String, value: String },
     TogglePreset(&'static str),
-    Save,
-    Apply,
-    ClearApplied,
+    AskReset,
+    Reset,
+    CancelReset,
     OpenRaw,
     CloseRaw,
     CommitRaw,
     Copied,
-    OpenAppliedFile,
 }
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
@@ -31,14 +30,15 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     widgets::page_header(
         ui,
         "Flags",
-        "Written to ClientAppSettings.json before Roblox starts.",
+        "Applied as soon as you change them, and written again before Roblox starts.",
         |ui| {
-            if widgets::Button::primary("Save profile")
-                .icon(Icon::Check)
+            if widgets::Button::primary("Reset flags")
+                .icon(Icon::Trash)
+                .enabled(!state.flags.entries.is_empty())
                 .show(ui)
                 .clicked()
             {
-                action = Some(Action::Save);
+                action = Some(Action::AskReset);
             }
             if widgets::Button::new("Import or export")
                 .icon(Icon::Copy)
@@ -59,10 +59,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         ui,
         feedback::Tone::Warning,
         "These are unofficial client settings",
-        "Roblox does not document or support editing this file. Unknown values are ignored, bad values can stop the client from starting, and Roblox may change or remove any of them without notice. RustBlox keeps a timestamped backup every time it writes.");
-    ui.add_space(theme.metrics.gap_lg);
-
-    status_card(ui, &theme, state, &mut action);
+        "Roblox does not document or support editing this file. Unknown values are ignored, bad values can stop the client from starting, and Roblox may change or remove any of them without notice. RustBlox keeps a timestamped copy of any file it replaces.");
     ui.add_space(theme.metrics.gap_lg);
 
     presets(ui, &theme, state, &mut action);
@@ -72,6 +69,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
 
     let ctx = ui.ctx().clone();
     json_dialog(&ctx, &theme, ui_state, &mut action);
+    reset_dialog(&ctx, &theme, ui_state, &mut action);
 
     if let Some(action) = action {
         apply(state, ui_state, action);
@@ -110,112 +108,69 @@ fn presets(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Opti
     );
 }
 
-fn status_card(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
-    let profile_count = state.flags.active_count();
-    let applied = state.applied_flags.clone();
-    let applied_count = applied.as_ref().map(|profile| profile.entries.len());
-    let install = state.detection.active().cloned();
-    let in_sync = applied
-        .as_ref()
-        .map(|disk| disk.to_json() == state.flags.to_json())
-        .unwrap_or(profile_count == 0);
+const DIALOG_WIDTH: f32 = 520.0;
 
-    widgets::card(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.metrics.gap_xl;
-            widgets::stat(
-                ui,
-                "In this profile",
-                &profile_count.to_string(),
-                feedback::Tone::Accent,
+fn reset_dialog(
+    ctx: &egui::Context,
+    theme: &Theme,
+    ui_state: &UiState,
+    action: &mut Option<Action>,
+) {
+    if !ui_state.confirm_flag_reset {
+        return;
+    }
+
+    let palette = theme.palette;
+    let mut close = false;
+
+    let response = egui::Modal::new(egui::Id::new("flag-reset"))
+        .backdrop_color(palette.scrim)
+        .frame(
+            egui::Frame::new()
+                .fill(palette.surface)
+                .stroke(egui::Stroke::new(1.0, palette.border))
+                .corner_radius(theme.radius_lg())
+                .inner_margin(egui::Margin::same(22)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(360.0);
+            ui.label(
+                egui::RichText::new("Reset every flag?")
+                    .font(theme::strong(theme::size::TITLE))
+                    .color(palette.text),
             );
-            widgets::stat(
-                ui,
-                "Written to the client",
-                &applied_count
-                    .map(|count| count.to_string())
-                    .unwrap_or_else(|| "none".into()),
-                if in_sync {
-                    feedback::Tone::Success
-                } else {
-                    feedback::Tone::Warning
-                },
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(
+                    "Presets and custom flags both go, and the client goes back to its own defaults. A copy of the file it is using now is kept in the backup folder.",
+                )
+                .font(theme::text_style(theme::size::SMALL))
+                .color(palette.text_muted),
             );
-            widgets::stat(
-                ui,
-                "Applied on launch",
-                if state.settings.advanced.apply_flag_profile {
-                    "Yes"
-                } else {
-                    "No"
-                },
-                feedback::Tone::Neutral,
-            );
+            ui.add_space(theme.metrics.gap_lg);
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if widgets::Button::new("Write now")
-                    .icon(Icon::Flag)
-                    .size(widgets::Size::Small)
-                    .enabled(install.is_some())
+                if widgets::Button::primary("Reset flags")
+                    .icon(Icon::Trash)
                     .show(ui)
                     .clicked()
                 {
-                    *action = Some(Action::Apply);
+                    *action = Some(Action::Reset);
                 }
-                if applied_count.is_some()
-                    && widgets::Button::new("Remove from client")
-                        .tone(widgets::Tone::Ghost)
-                        .size(widgets::Size::Small)
-                        .show(ui)
-                        .clicked()
+                if widgets::Button::new("Keep them")
+                    .tone(widgets::Tone::Ghost)
+                    .show(ui)
+                    .clicked()
                 {
-                    *action = Some(Action::ClearApplied);
+                    close = true;
                 }
             });
         });
 
-        if let Some(install) = &install {
-            ui.add_space(theme.metrics.gap_md);
-            ui.horizontal(|ui| {
-                let path = install.client_settings_file().display().to_string();
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&path)
-                            .font(egui::FontId::new(
-                                theme::size::MICRO,
-                                egui::FontFamily::Monospace,
-                            ))
-                            .color(theme.palette.text_faint),
-                    )
-                    .truncate(),
-                )
-                .on_hover_text(&path);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if applied_count.is_some()
-                        && widgets::Button::new("Open folder")
-                            .tone(widgets::Tone::Quiet)
-                            .size(widgets::Size::Small)
-                            .show(ui)
-                            .clicked()
-                    {
-                        *action = Some(Action::OpenAppliedFile);
-                    }
-                });
-            });
-        } else {
-            ui.add_space(theme.metrics.gap_sm);
-            ui.label(
-                egui::RichText::new(
-                    "No Roblox installation is selected, so the profile cannot be written yet.",
-                )
-                .font(theme::text_style(theme::size::SMALL))
-                .color(theme.palette.warning),
-            );
-        }
-    });
+    if (close || response.should_close()) && action.is_none() {
+        *action = Some(Action::CancelReset);
+    }
 }
-
-const DIALOG_WIDTH: f32 = 520.0;
 
 fn json_dialog(
     ctx: &egui::Context,
@@ -471,14 +426,14 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
                     ui_state.flag_key.clear();
                     ui_state.flag_value.clear();
                     ui_state.flag_error = None;
-                    state.save_flags();
+                    state.commit_flags();
                 }
                 Err(err) => ui_state.flag_error = Some(err.to_string()),
             }
         }
         Action::Remove(key) => {
             state.flags.remove(&key);
-            state.save_flags();
+            state.commit_flags();
         }
         Action::TogglePreset(name) => {
             if let Some(preset) = flags::preset_named(name) {
@@ -487,7 +442,7 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
                 } else {
                     state.flags.apply_preset(preset);
                 }
-                state.save_flags();
+                state.commit_flags();
             }
         }
         Action::Copied => state.toasts.success("Copied to the clipboard"),
@@ -500,7 +455,7 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
             {
                 entry.enabled = !entry.enabled;
             }
-            state.save_flags();
+            state.commit_flags();
         }
         Action::Edit { key, value } => {
             if let Some(entry) = state
@@ -511,33 +466,24 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
             {
                 entry.value = FlagValue::from_input(&value);
             }
+            state.mark_flags_dirty();
         }
-        Action::Save => state.save_flags(),
-        Action::Apply => state.apply_flags_now(),
-        Action::ClearApplied => state.clear_applied_flags(),
-        Action::OpenRaw => {
-            ui_state.raw_editor = Some(state.flags.to_pretty());
-            ui_state.raw_error = None;
+        Action::AskReset => ui_state.confirm_flag_reset = true,
+        Action::Reset => {
+            ui_state.confirm_flag_reset = false;
+            ui_state.flag_filter.clear();
+            ui_state.flag_error = None;
+            state.reset_flags();
         }
-        Action::CloseRaw => {
-            ui_state.raw_editor = None;
-            ui_state.raw_error = None;
-        }
+        Action::CancelReset => ui_state.confirm_flag_reset = false,
+        Action::OpenRaw => ui_state.raw_editor = Some(state.flags.to_pretty()),
+        Action::CloseRaw => ui_state.raw_editor = None,
         Action::CommitRaw => {
             let text = ui_state.raw_editor.clone().unwrap_or_default();
-            match flags::FlagProfile::parse(&text) {
-                Ok(profile) => {
-                    state.flags = profile;
-                    ui_state.raw_editor = None;
-                    ui_state.raw_error = None;
-                    state.save_flags();
-                }
-                Err(err) => ui_state.raw_error = Some(err.to_string()),
-            }
-        }
-        Action::OpenAppliedFile => {
-            if let Some(install) = state.detection.active().cloned() {
-                state.open_path(install.client_settings_dir());
+            if let Ok(profile) = flags::FlagProfile::parse(&text) {
+                state.flags = profile;
+                ui_state.raw_editor = None;
+                state.commit_flags();
             }
         }
     }

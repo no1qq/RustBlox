@@ -14,7 +14,6 @@ const MAX_VERSION_ENTRIES: usize = 64;
 pub struct Detection {
     pub installations: Vec<Installation>,
     pub selected: Option<usize>,
-    pub searched: Vec<PathBuf>,
     pub notes: Vec<String>,
     pub scanned_at: DateTime<Local>,
 }
@@ -24,7 +23,6 @@ impl Default for Detection {
         Self {
             installations: Vec::new(),
             selected: None,
-            searched: Vec::new(),
             notes: Vec::new(),
             scanned_at: Local::now(),
         }
@@ -35,20 +33,6 @@ impl Detection {
     pub fn active(&self) -> Option<&Installation> {
         self.selected
             .and_then(|index| self.installations.get(index))
-    }
-
-    pub fn select_folder(&mut self, folder_id: &str) -> bool {
-        match self
-            .installations
-            .iter()
-            .position(|install| install.folder_id == folder_id)
-        {
-            Some(index) => {
-                self.selected = Some(index);
-                true
-            }
-            None => false,
-        }
     }
 }
 
@@ -128,7 +112,6 @@ fn preference(a: &Installation, b: &Installation) -> std::cmp::Ordering {
 
 pub fn scan(options: &ScanOptions) -> Detection {
     let mut installations: Vec<Installation> = Vec::new();
-    let mut searched = Vec::new();
     let mut notes = Vec::new();
     let mut visited = BTreeSet::new();
 
@@ -148,7 +131,6 @@ pub fn scan(options: &ScanOptions) -> Detection {
         if !visited.insert(key) {
             continue;
         }
-        searched.push(candidate.root.clone());
         if !candidate.root.is_dir() {
             continue;
         }
@@ -192,7 +174,6 @@ pub fn scan(options: &ScanOptions) -> Detection {
     Detection {
         installations,
         selected,
-        searched,
         notes,
         scanned_at: Local::now(),
     }
@@ -232,11 +213,14 @@ mod tests {
     #[test]
     fn a_managed_root_is_searched_first() {
         let dir = tempfile::tempdir().unwrap();
-        let detection = scan(&ScanOptions {
+        let roots = candidates(&ScanOptions {
             managed_root: Some(dir.path().to_path_buf()),
+            custom_root: Some(dir.path().join("elsewhere")),
             ..ScanOptions::default()
         });
-        assert_eq!(detection.searched.first(), Some(&dir.path().to_path_buf()));
+        let first = roots.first().expect("a managed root is a candidate");
+        assert_eq!(first.root, dir.path().to_path_buf());
+        assert_eq!(first.source, InstallSource::Ours);
     }
 
     #[test]
@@ -295,17 +279,20 @@ mod tests {
     #[test]
     fn nothing_outside_our_own_folders_is_searched() {
         let dir = tempfile::tempdir().unwrap();
-        let detection = scan(&ScanOptions {
+        let roots: Vec<_> = candidates(&ScanOptions {
             managed_root: Some(dir.path().to_path_buf()),
             ..ScanOptions::default()
-        });
-        assert_eq!(detection.searched, vec![dir.path().to_path_buf()]);
+        })
+        .into_iter()
+        .map(|entry| entry.root)
+        .collect();
+        assert_eq!(roots, vec![dir.path().to_path_buf()]);
     }
 
     #[test]
     fn a_roblox_install_of_its_own_is_never_picked_up() {
         let detection = scan(&ScanOptions::default());
-        assert!(detection.searched.is_empty());
+        assert!(candidates(&ScanOptions::default()).is_empty());
         assert!(detection.installations.is_empty());
     }
 

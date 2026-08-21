@@ -25,7 +25,6 @@ pub enum Icon {
     Maximize,
     Restore,
     Close,
-    Pin,
 }
 
 struct Grid {
@@ -290,17 +289,6 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
         Icon::Close => {
             path(vec![grid.at(7.0, 7.0), grid.at(17.0, 17.0)]);
             path(vec![grid.at(17.0, 7.0), grid.at(7.0, 17.0)]);
-        }
-        Icon::Pin => {
-            path(vec![grid.at(12.0, 13.6), grid.at(12.0, 20.6)]);
-            closed(vec![
-                grid.at(8.0, 4.2),
-                grid.at(16.0, 4.2),
-                grid.at(14.4, 9.0),
-                grid.at(16.8, 13.4),
-                grid.at(7.2, 13.4),
-                grid.at(9.6, 9.0),
-            ]);
         }
     }
 }

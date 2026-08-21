@@ -25,13 +25,15 @@ a mod, an injector or an account tool.
   website route through RustBlox, saving whatever handler was there before so it can
   be put back exactly.
 - Edits the client flag file (`ClientAppSettings.json`) with validation, presets for the
-  common ones, clipboard import and export, and a timestamped backup on every write.
+  common ones, clipboard import and export, and a timestamped backup when it replaces a
+  file it did not write. There is no save step: a flag you add, change or turn off is
+  written to the client straight away, and written again before the next launch.
 - Keeps settings, state and logs in a per-user folder, and survives a damaged or
   outdated configuration file without losing your data.
 - Updates itself from its own GitHub releases, on request rather than silently.
 - Follows the Windows light and dark setting, or stays on whichever you pick.
-- Starts simple. Flags, the Advanced settings tab and the extra install controls stay
-  hidden until you turn on Advanced options in Settings.
+- Starts simple. The Flags page, the Installation page and the Advanced settings tab
+  stay hidden until you turn on Advanced options in Settings.
 
 ## Building
 
@@ -167,8 +169,8 @@ broken client. A test that runs against the live CDN checks the map is still com
 - **Only its own copy is used.** RustBlox looks in its own `Versions` folder and
   nowhere else. It does not go looking through `%LOCALAPPDATA%\Roblox`, Program Files
   or another launcher's folder, so an install Roblox made is never read or started.
-  A copy kept somewhere else needs a custom path, which the Installation page accepts
-  once Advanced options is on.
+  A copy kept somewhere else needs a custom path, which the Home page asks for when
+  nothing is installed yet.
 
 ## The windows
 
@@ -185,8 +187,9 @@ the window up with the reason, Try again, and Close.
 Configure settings opens the full window, which is where installs, quick launch
 entries, appearance and everything else live. The sidebar there collapses to icons
 with the button above the tabs. `rustblox --settings` opens it directly. Launching
-from that window shows the same progress window and then comes back to it rather than
-closing, unless Settings says otherwise.
+from that window shows the same progress window, and once the client is running it
+closes too, exactly as it does from the launcher. A failed launch comes back to the
+window it started from.
 
 Uninstall opens its own screen and asks first. It always removes
 `%LOCALAPPDATA%\RustBlox\data`, which holds the Roblox copies RustBlox installed, its
@@ -197,11 +200,10 @@ last. A Roblox install that RustBlox did not create is never touched.
 
 ## Simple by default
 
-Everything needed to install and play Roblox is on the Home, Installation, Settings
-and About pages. Turning on **Advanced options** in Settings adds the Flags page, the
-Advanced settings tab, the pinned version and custom folder controls, the detected
-installation list and the launch link handling section. Turning it back off hides
-them again without changing anything they configured.
+Everything needed to install and play Roblox is on the Home, Settings and About pages.
+Turning on **Advanced options** in Settings adds the Flags page, the Installation page
+with its download controls and launch link handling, and the Advanced settings tab.
+Turning it back off hides them again without changing anything they configured.
 
 ## Light and dark
 

@@ -177,32 +177,14 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
                 .font(theme::text_style(theme::size::SMALL))
                 .color(theme.palette.text_muted),
             );
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("RustBlox closes itself once the client is running.")
+                    .font(theme::text_style(theme::size::SMALL))
+                    .color(theme.palette.text_muted),
+            );
         },
     );
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    widgets::section(ui, "Once Roblox is running", None, |ui| {
-        widgets::setting_row(
-            ui,
-            "Close RustBlox",
-            "The launcher window always closes. This covers launches started from this window.",
-            |ui| {
-                changed |=
-                    widgets::toggle(ui, &mut state.settings.launch.close_after_launch).changed();
-            },
-        );
-        ui.add_space(theme.metrics.gap_md);
-        widgets::setting_row(
-            ui,
-            "Minimise RustBlox",
-            "Drops this window to the taskbar instead of closing it.",
-            |ui| {
-                changed |=
-                    widgets::toggle(ui, &mut state.settings.launch.hide_window_on_launch).changed();
-            },
-        );
-    });
 
     if advanced {
         ui.add_space(theme.metrics.gap_lg);

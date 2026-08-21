@@ -330,7 +330,7 @@ mod tests {
     fn an_unversioned_file_is_migrated_forward() {
         let (_dir, store) = store();
         let path = store.paths().settings_file();
-        crate::util::fs::write_atomic(&path, br#"{"launch": {"close_after_launch": true}}"#)
+        crate::util::fs::write_atomic(&path, br#"{"launch": {"launch_timeout_secs": 45}}"#)
             .unwrap();
 
         let loaded = store.load_settings();
@@ -339,7 +339,7 @@ mod tests {
             loaded.value.version,
             crate::config::migrate::CURRENT_VERSION
         );
-        assert!(loaded.value.launch.close_after_launch);
+        assert_eq!(loaded.value.launch.launch_timeout_secs, 45);
         assert!(loaded
             .notes
             .iter()

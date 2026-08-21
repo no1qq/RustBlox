@@ -1,6 +1,4 @@
-use std::path::{Path, PathBuf};
-
-use crate::error::{Context, Error, Result};
+use std::path::Path;
 
 use super::install::{format_size, Installation, INCOMPLETE_SUFFIX, PREVIOUS_SUFFIX};
 
@@ -87,24 +85,6 @@ pub fn tidy_downloads(downloads_root: &Path, keep: &[String]) -> Sweep {
     sweep(downloads_root, keep)
 }
 
-pub fn remove_version(versions_root: &Path, dir: &Path) -> Result<u64> {
-    let root = versions_root
-        .canonicalize()
-        .unwrap_or_else(|_| versions_root.to_path_buf());
-    let target = dir.canonicalize().ctx_path("could not resolve", dir)?;
-
-    if !target.starts_with(&root) || target == root {
-        return Err(Error::invalid(format!(
-            "{} is not a version folder RustBlox manages",
-            dir.display()
-        )));
-    }
-
-    let size = directory_size(&target);
-    std::fs::remove_dir_all(&target).ctx_path("could not remove", &target)?;
-    Ok(size)
-}
-
 pub fn update_available(installed: &[String], latest_folder: &str) -> bool {
     !installed
         .iter()
@@ -117,10 +97,6 @@ pub fn managed_folders(installations: &[Installation], versions_root: &Path) -> 
         .filter(|install| install.version_dir.starts_with(versions_root))
         .map(|install| install.folder_id.clone())
         .collect()
-}
-
-pub fn version_dir(versions_root: &Path, folder: &str) -> PathBuf {
-    versions_root.join(folder)
 }
 
 #[cfg(test)]
@@ -188,41 +164,6 @@ mod tests {
         assert_eq!(sweep.removed.len(), 2);
         assert_eq!(sweep.reclaimed, 30);
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
-    }
-
-    #[test]
-    fn removing_a_version_refuses_a_folder_outside_the_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("Versions");
-        std::fs::create_dir_all(&root).unwrap();
-        let outside = dir.path().join("elsewhere");
-        std::fs::create_dir_all(&outside).unwrap();
-
-        assert!(remove_version(&root, &outside).is_err());
-        assert!(outside.is_dir());
-    }
-
-    #[test]
-    fn removing_a_version_refuses_the_root_itself() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("Versions");
-        std::fs::create_dir_all(&root).unwrap();
-
-        assert!(remove_version(&root, &root).is_err());
-        assert!(root.is_dir());
-    }
-
-    #[test]
-    fn removing_a_version_reports_what_it_freed() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("Versions");
-        std::fs::create_dir_all(&root).unwrap();
-        version(&root, "version-a", 128);
-
-        let freed = remove_version(&root, &root.join("version-a")).unwrap();
-
-        assert_eq!(freed, 128);
-        assert!(!root.join("version-a").exists());
     }
 
     #[test]

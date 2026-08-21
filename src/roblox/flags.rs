@@ -20,16 +20,13 @@ pub enum FlagValue {
 
 impl FlagValue {
     pub fn as_json(&self) -> Value {
-        match self {
-            FlagValue::Bool(value) => Value::Bool(*value),
-            FlagValue::Number(value) => Value::from(*value),
-            FlagValue::Text(value) => Value::String(value.clone()),
-        }
+        Value::String(self.display())
     }
 
     pub fn display(&self) -> String {
         match self {
-            FlagValue::Bool(value) => value.to_string(),
+            FlagValue::Bool(true) => "True".into(),
+            FlagValue::Bool(false) => "False".into(),
             FlagValue::Number(value) => value.to_string(),
             FlagValue::Text(value) => value.clone(),
         }
@@ -282,11 +279,14 @@ pub fn save_profile(dir: &Path, profile: &FlagProfile) -> Result<()> {
     fs::write_atomic(&profile_path(dir), text.as_bytes())
 }
 
+pub const BACKUPS_KEPT: usize = 10;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApplyReport {
     pub written: PathBuf,
     pub backup: Option<PathBuf>,
     pub count: usize,
+    pub unchanged: bool,
 }
 
 pub fn apply_to(
@@ -295,37 +295,28 @@ pub fn apply_to(
     backup_dir: &Path,
 ) -> Result<ApplyReport> {
     let target = install.client_settings_file();
-    fs::ensure_dir(&install.client_settings_dir())?;
-
-    let backup = back_up_existing(&target, backup_dir)?;
-
     let mut text = profile.to_pretty();
     text.push('\n');
+
+    if fs::read_to_string_if_exists(&target)?.as_deref() == Some(text.as_str()) {
+        return Ok(ApplyReport {
+            written: target,
+            backup: None,
+            count: profile.active_count(),
+            unchanged: true,
+        });
+    }
+
+    fs::ensure_dir(&install.client_settings_dir())?;
+    let backup = back_up_existing(&target, backup_dir)?;
     fs::write_atomic(&target, text.as_bytes())?;
 
     Ok(ApplyReport {
         written: target,
         backup,
         count: profile.active_count(),
+        unchanged: false,
     })
-}
-
-pub fn read_applied(install: &Installation) -> Result<Option<FlagProfile>> {
-    let path = install.client_settings_file();
-    match fs::read_to_string_if_exists(&path)? {
-        Some(text) => FlagProfile::parse(&text).map(Some),
-        None => Ok(None),
-    }
-}
-
-pub fn clear_applied(install: &Installation, backup_dir: &Path) -> Result<Option<PathBuf>> {
-    let target = install.client_settings_file();
-    if !target.is_file() {
-        return Ok(None);
-    }
-    let backup = back_up_existing(&target, backup_dir)?;
-    std::fs::remove_file(&target).ctx_path("could not remove", &target)?;
-    Ok(backup)
 }
 
 fn back_up_existing(target: &Path, backup_dir: &Path) -> Result<Option<PathBuf>> {
@@ -337,7 +328,37 @@ fn back_up_existing(target: &Path, backup_dir: &Path) -> Result<Option<PathBuf>>
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let path = backup_dir.join(format!("ClientAppSettings-{stamp}.json"));
     fs::write_atomic(&path, &contents)?;
+    prune_backups(backup_dir, BACKUPS_KEPT);
     Ok(Some(path))
+}
+
+fn prune_backups(backup_dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(backup_dir) else {
+        return;
+    };
+
+    let mut found: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with("ClientAppSettings-") && name.ends_with(".json")
+                    })
+        })
+        .collect();
+
+    if found.len() <= keep {
+        return;
+    }
+
+    found.sort();
+    for path in found.iter().take(found.len() - keep) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 #[cfg(test)]
@@ -363,9 +384,22 @@ mod tests {
         assert_eq!(profile.active_count(), 3);
 
         let json = profile.to_json();
-        assert_eq!(json["FFlagA"], serde_json::json!(true));
-        assert_eq!(json["DFIntB"], serde_json::json!(7));
+        assert_eq!(json["FFlagA"], serde_json::json!("True"));
+        assert_eq!(json["DFIntB"], serde_json::json!("7"));
         assert_eq!(json["FStringC"], serde_json::json!("x"));
+    }
+
+    #[test]
+    fn the_client_file_only_ever_holds_strings() {
+        let mut profile = FlagProfile::default();
+        profile.set("FFlagOne".into(), FlagValue::Bool(true));
+        profile.set("FFlagTwo".into(), FlagValue::Bool(false));
+        profile.set("DFIntThree".into(), FlagValue::Number(240));
+
+        for (_, value) in profile.to_json().as_object().unwrap() {
+            assert!(value.is_string(), "{value} is not a string");
+        }
+        assert_eq!(profile.to_json()["FFlagTwo"], serde_json::json!("False"));
     }
 
     #[test]

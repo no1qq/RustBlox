@@ -39,7 +39,6 @@ pub struct AppState {
     pub latest_note: Option<String>,
     pub roblox: RobloxStatus,
     pub flags: FlagProfile,
-    pub applied_flags: Option<FlagProfile>,
     pub session: LaunchSession,
     pub install: InstallSession,
     pub flow: LaunchFlow,
@@ -51,11 +50,10 @@ pub struct AppState {
     pub system_dark: bool,
     pub startup_notes: Vec<String>,
     pub exe_path: Option<PathBuf>,
-    pub forwarding: bool,
     pub close_requested: bool,
-    pub minimize_requested: bool,
 
     settings_dirty_at: Option<Instant>,
+    flags_dirty_at: Option<Instant>,
     state_dirty: bool,
     last_poll: Instant,
     last_theme_probe: Instant,
@@ -112,7 +110,6 @@ impl AppState {
             latest_note: None,
             roblox: RobloxStatus::default(),
             flags,
-            applied_flags: None,
             session: LaunchSession::default(),
             install: InstallSession::default(),
             flow: LaunchFlow::default(),
@@ -124,10 +121,9 @@ impl AppState {
             system_dark: platform::system_dark_mode().unwrap_or(true),
             startup_notes,
             exe_path: std::env::current_exe().ok(),
-            forwarding: false,
             close_requested: false,
-            minimize_requested: false,
             settings_dirty_at: None,
+            flags_dirty_at: None,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
             last_theme_probe: Instant::now() - THEME_PROBE,
@@ -172,6 +168,12 @@ impl AppState {
             }
         }
 
+        if let Some(since) = self.flags_dirty_at {
+            if since.elapsed() >= SAVE_DEBOUNCE {
+                self.flush_flags();
+            }
+        }
+
         if self.last_theme_probe.elapsed() >= THEME_PROBE {
             self.last_theme_probe = Instant::now();
             if let Some(dark) = platform::system_dark_mode() {
@@ -207,8 +209,6 @@ impl AppState {
                     }
                     None => log_warn!("no Roblox installation was found"),
                 }
-
-                self.refresh_applied_flags();
             }
             Update::Processes(status) => {
                 let was_running = self.roblox.player_running();
@@ -471,12 +471,7 @@ impl AppState {
         }
 
         if self.session.phase == Phase::Succeeded {
-            if self.settings.launch.close_after_launch || self.forwarding {
-                self.close_requested = true;
-            } else if self.settings.launch.hide_window_on_launch {
-                self.minimize_requested = true;
-                self.session.reset();
-            }
+            self.close_requested = true;
         }
     }
 
@@ -729,40 +724,6 @@ impl AppState {
         }
     }
 
-    pub fn is_managed(&self, folder: &str) -> bool {
-        self.managed_folders()
-            .iter()
-            .any(|managed| managed == folder)
-    }
-
-    pub fn remove_version(&mut self, folder: String) {
-        if self.roblox.player_running() {
-            self.toasts.warning(
-                "Close Roblox first",
-                Some("A version folder cannot be removed while the client is using it.".into()),
-            );
-            return;
-        }
-        if !self.is_managed(&folder) {
-            self.toasts.warning(
-                "That copy is not managed by RustBlox",
-                Some(
-                    "Only versions inside the RustBlox Versions folder can be removed here.".into(),
-                ),
-            );
-            return;
-        }
-        if self.settings.advanced.pinned_version_folder.as_deref() == Some(folder.as_str()) {
-            self.settings.advanced.pinned_version_folder = None;
-            self.mark_settings_dirty();
-            self.flush_settings();
-        }
-
-        log_info!("removing version folder {folder}");
-        self.tasks
-            .remove_version(self.store.paths().versions_dir(), folder);
-    }
-
     fn tidy_after_install(&mut self, folder: &str) {
         if self.roblox.player_running() {
             log_info!("cleanup skipped while the Roblox client is running");
@@ -785,19 +746,6 @@ impl AppState {
             keep_versions,
             keep_downloads,
         );
-    }
-
-    pub fn refresh_applied_flags(&mut self) {
-        self.applied_flags = match self.detection.active() {
-            Some(install) => match flags::read_applied(install) {
-                Ok(profile) => profile,
-                Err(err) => {
-                    log_warn!("applied flags could not be read: {err}");
-                    None
-                }
-            },
-            None => None,
-        };
     }
 
     pub fn default_target(&self) -> LaunchTarget {
@@ -906,41 +854,47 @@ impl AppState {
         }
     }
 
-    pub fn save_flags(&mut self) {
-        self.flags.sort();
-        match flags::save_profile(&self.store.paths().flag_profiles_dir(), &self.flags) {
-            Ok(()) => self.toasts.success("Flag profile saved"),
-            Err(err) => self
-                .toasts
-                .error("Flag profile could not be saved", Some(err.to_string())),
-        }
+    pub fn mark_flags_dirty(&mut self) {
+        self.flags_dirty_at = Some(Instant::now());
     }
 
-    pub fn apply_flags_now(&mut self) {
+    pub fn commit_flags(&mut self) {
+        self.mark_flags_dirty();
+        self.flush_flags();
+    }
+
+    pub fn flush_flags(&mut self) {
+        if self.flags_dirty_at.take().is_none() {
+            return;
+        }
+
+        self.flags.sort();
+        if let Err(err) = flags::save_profile(&self.store.paths().flag_profiles_dir(), &self.flags)
+        {
+            log_error!("flag profile could not be saved: {err}");
+            self.toasts
+                .error("Flag profile could not be saved", Some(err.to_string()));
+            return;
+        }
+
+        self.write_flags_to_client();
+    }
+
+    fn write_flags_to_client(&mut self) {
+        if !self.settings.advanced.apply_flag_profile {
+            return;
+        }
         let Some(install) = self.detection.active().cloned() else {
-            self.toasts.warning(
-                "No installation selected",
-                Some("Find a Roblox install first, then apply the profile.".into()),
-            );
             return;
         };
 
         match flags::apply_to(&install, &self.flags, &self.store.paths().backup_dir()) {
-            Ok(report) => {
-                log_info!(
-                    "wrote {} flags to {}",
-                    report.count,
-                    report.written.display()
-                );
-                self.toasts.push(
-                    ToastKind::Success,
-                    format!("Applied {} flags", report.count),
-                    report
-                        .backup
-                        .map(|path| format!("Previous file kept at {}", path.display())),
-                );
-                self.refresh_applied_flags();
-            }
+            Ok(report) if report.unchanged => {}
+            Ok(report) => log_info!(
+                "wrote {} flags to {}",
+                report.count,
+                report.written.display()
+            ),
             Err(err) => {
                 log_error!("flags could not be applied: {err}");
                 self.toasts
@@ -949,25 +903,10 @@ impl AppState {
         }
     }
 
-    pub fn clear_applied_flags(&mut self) {
-        let Some(install) = self.detection.active().cloned() else {
-            return;
-        };
-
-        match flags::clear_applied(&install, &self.store.paths().backup_dir()) {
-            Ok(Some(backup)) => {
-                self.toasts.push(
-                    ToastKind::Success,
-                    "Removed the applied flags",
-                    Some(format!("Previous file kept at {}", backup.display())),
-                );
-                self.refresh_applied_flags();
-            }
-            Ok(None) => self.toasts.info("There were no applied flags to remove"),
-            Err(err) => self
-                .toasts
-                .error("Applied flags could not be removed", Some(err.to_string())),
-        }
+    pub fn reset_flags(&mut self) {
+        self.flags = FlagProfile::default();
+        self.commit_flags();
+        self.toasts.success("Flags reset");
     }
 
     pub fn refresh_protocol(&mut self) {
@@ -1077,11 +1016,8 @@ impl AppState {
         self.flush_settings();
         self.state_dirty = true;
         self.flush_state();
-        self.flags.sort();
-        if let Err(err) = flags::save_profile(&self.store.paths().flag_profiles_dir(), &self.flags)
-        {
-            log_error!("flag profile could not be saved on exit: {err}");
-        }
+        self.mark_flags_dirty();
+        self.flush_flags();
         Ok(())
     }
 }

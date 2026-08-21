@@ -16,23 +16,12 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
     let installed = state.detection.active().is_some();
 
-    let mut rescan = false;
     widgets::page_header(
         ui,
         "Home",
         "Launch Roblox and pick up where you left off.",
-        |ui| {
-            rescan = widgets::Button::new("Rescan")
-                .icon(Icon::Refresh)
-                .tone(widgets::Tone::Ghost)
-                .enabled(!state.tasks.is_scanning())
-                .show(ui)
-                .clicked();
-        },
+        |_| {},
     );
-    if rescan {
-        state.rescan();
-    }
 
     if !installed {
         missing_install(ui, &theme, state, ui_state);
@@ -49,6 +38,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
 fn missing_install(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
     let scanning = state.tasks.is_scanning();
     let can_install = state.can_install();
+    let advanced = state.settings.advanced_mode;
     let mut go_to_installation = false;
     let mut pick = false;
     let mut install = false;
@@ -84,10 +74,12 @@ fn missing_install(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_st
                         .enabled(!scanning)
                         .show(ui)
                         .clicked();
-                    go_to_installation = widgets::Button::new("Details")
-                        .tone(widgets::Tone::Ghost)
-                        .show(ui)
-                        .clicked();
+                    if advanced {
+                        go_to_installation = widgets::Button::new("Details")
+                            .tone(widgets::Tone::Ghost)
+                            .show(ui)
+                            .clicked();
+                    }
                 });
             },
         );

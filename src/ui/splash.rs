@@ -4,7 +4,7 @@ use crate::app::{AppState, FlowStage, FlowStatus};
 
 use super::theme::{self, Theme};
 use super::widgets;
-use super::{appicon, Shell, UiState};
+use super::{appicon, UiState};
 
 pub const WIDTH: f32 = 400.0;
 pub const HEIGHT: f32 = 246.0;
@@ -101,7 +101,7 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
     }
 
     if stage == FlowStage::Finished {
-        finish(state, ui_state);
+        state.close_requested = true;
     }
     if cancel {
         state.cancel_flow();
@@ -112,22 +112,6 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
     if dismiss {
         leave(state, ui_state);
     }
-}
-
-fn finish(state: &mut AppState, ui_state: &mut UiState) {
-    if ui_state.return_shell != Shell::Full {
-        state.close_requested = true;
-        return;
-    }
-
-    if state.settings.launch.close_after_launch {
-        state.close_requested = true;
-        return;
-    }
-    if state.settings.launch.hide_window_on_launch {
-        state.minimize_requested = true;
-    }
-    leave(state, ui_state);
 }
 
 fn leave(state: &mut AppState, ui_state: &mut UiState) {

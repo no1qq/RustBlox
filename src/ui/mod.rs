@@ -40,13 +40,13 @@ impl Page {
         Page::About,
     ];
 
-    const WITHOUT_FLAGS: [Page; 4] = [Page::Home, Page::Installation, Page::Settings, Page::About];
+    const SIMPLE: [Page; 3] = [Page::Home, Page::Settings, Page::About];
 
     pub fn visible(advanced: bool) -> &'static [Page] {
         if advanced {
             &Self::ALL
         } else {
-            &Self::WITHOUT_FLAGS
+            &Self::SIMPLE
         }
     }
 
@@ -174,14 +174,12 @@ pub struct UiState {
     pub flag_value: String,
     pub flag_error: Option<String>,
     pub flag_filter: String,
+    pub confirm_flag_reset: bool,
     pub raw_editor: Option<String>,
-    pub raw_error: Option<String>,
     pub confirm: Option<LaunchTarget>,
     pub extra_args_buffer: Option<String>,
     pub channel_buffer: Option<String>,
-    pub show_searched_paths: bool,
     pub show_log: bool,
-    pub pending_removal: Option<String>,
 }
 
 pub struct RustBloxApp {
@@ -191,6 +189,7 @@ pub struct RustBloxApp {
     applied_scale: f32,
     applied_theme: Option<Theme>,
     applied_shell: Option<Shell>,
+    shown_tab: Option<(Page, SettingsTab)>,
     saved_window: WindowState,
 }
 
@@ -210,7 +209,6 @@ impl RustBloxApp {
         match command {
             CommandKind::WindowOnSettings => ui.page = Page::Settings,
             CommandKind::Forward(uri) => {
-                state.forwarding = true;
                 state.start_launch_flow(LaunchTarget::Forward(uri.clone()));
             }
             CommandKind::LaunchNow => {
@@ -230,6 +228,7 @@ impl RustBloxApp {
             applied_scale: 0.0,
             applied_theme: None,
             applied_shell: Some(shell),
+            shown_tab: None,
             saved_window,
         }
     }
@@ -309,10 +308,6 @@ impl RustBloxApp {
     }
 
     fn pump_viewport(&mut self, ctx: &egui::Context) {
-        if self.state.minimize_requested {
-            self.state.minimize_requested = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-        }
         if self.state.close_requested {
             self.state.close_requested = false;
             let _ = self.state.shutdown();
@@ -424,34 +419,40 @@ impl eframe::App for RustBloxApp {
                 chrome::sidebar(ui, &theme, &mut self.state, &mut self.ui, expansion);
             });
 
+        let tab = (self.ui.page, self.ui.settings_tab);
+        let switched = self.shown_tab != Some(tab);
+        self.shown_tab = Some(tab);
+
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme.palette.window))
             .show(root, |ui| {
                 let pad = theme.metrics.page_pad;
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(ui.available_width(), 0.0),
-                            Layout::top_down(Align::Min),
-                            |ui| {
-                                ui.add_space(pad * 0.9);
-                                let content = (ui.available_width() - pad * 2.0).max(1.0);
-                                ui.horizontal_top(|ui| {
-                                    ui.add_space(pad);
-                                    ui.allocate_ui_with_layout(
-                                        egui::vec2(content, 0.0),
-                                        Layout::top_down(Align::Min),
-                                        |ui| {
-                                            ui.set_width(content);
-                                            pages::render(ui, &mut self.state, &mut self.ui);
-                                        },
-                                    );
-                                });
+                let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+                if switched {
+                    area = area.vertical_scroll_offset(0.0);
+                }
+                area.show(ui, |ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), 0.0),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            ui.add_space(pad * 0.9);
+                            let content = (ui.available_width() - pad * 2.0).max(1.0);
+                            ui.horizontal_top(|ui| {
                                 ui.add_space(pad);
-                            },
-                        );
-                    });
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(content, 0.0),
+                                    Layout::top_down(Align::Min),
+                                    |ui| {
+                                        ui.set_width(content);
+                                        pages::render(ui, &mut self.state, &mut self.ui);
+                                    },
+                                );
+                            });
+                            ui.add_space(pad);
+                        },
+                    );
+                });
             });
 
         let ctx = &ctx;
@@ -524,16 +525,18 @@ mod tests {
     }
 
     #[test]
-    fn flags_and_the_advanced_tab_are_hidden_until_asked_for() {
-        assert!(!Page::visible(false).contains(&Page::Flags));
-        assert!(Page::visible(true).contains(&Page::Flags));
+    fn flags_installs_and_the_advanced_tab_are_hidden_until_asked_for() {
+        for page in [Page::Flags, Page::Installation] {
+            assert!(!Page::visible(false).contains(&page));
+            assert!(Page::visible(true).contains(&page));
+        }
         assert!(!SettingsTab::visible(false).contains(&SettingsTab::Advanced));
         assert!(SettingsTab::visible(true).contains(&SettingsTab::Advanced));
     }
 
     #[test]
     fn the_simple_view_still_reaches_every_everyday_page() {
-        for page in [Page::Home, Page::Installation, Page::Settings, Page::About] {
+        for page in [Page::Home, Page::Settings, Page::About] {
             assert!(Page::visible(false).contains(&page));
         }
     }
