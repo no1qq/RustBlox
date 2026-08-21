@@ -114,6 +114,9 @@ fn step_v5_to_v6(root: &mut Map<String, Value>) {
         discord
             .entry("show_place_name")
             .or_insert(Value::Bool(true));
+        discord
+            .entry("application_id")
+            .or_insert(Value::from(crate::discord::DEFAULT_APPLICATION_ID));
     }
 }
 
@@ -272,7 +275,22 @@ mod tests {
 
         assert_eq!(value["discord"]["enabled"], json!(false));
         assert_eq!(value["discord"]["show_place_name"], json!(true));
+        assert_eq!(
+            value["discord"]["application_id"],
+            json!(crate::discord::DEFAULT_APPLICATION_ID)
+        );
         assert!(outcome.note().unwrap().contains("Discord"));
+    }
+
+    #[test]
+    fn an_application_id_that_is_already_there_is_kept() {
+        let mut value = json!({"version": 5, "discord": {"application_id": "999999999999999999"}});
+        migrate(&mut value);
+
+        assert_eq!(
+            value["discord"]["application_id"],
+            json!("999999999999999999")
+        );
     }
 
     #[test]

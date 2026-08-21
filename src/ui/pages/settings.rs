@@ -244,8 +244,10 @@ fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
     let mut changed = false;
     let mut restart = false;
     let mut open_portal = false;
+    let mut reset_id = false;
     let status = state.presence_status();
     let usable = state.settings.discord.is_usable();
+    let built_in = state.settings.discord.is_built_in();
 
     widgets::section(
         ui,
@@ -255,7 +257,7 @@ fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
             widgets::setting_row(
                 ui,
                 "Show what you are playing",
-                "RustBlox stays open while Roblox runs so it can keep the status up to date, and closes with it.",
+                "RustBlox stays open while Roblox runs so it can keep the status up to date, and closes with it. Discord has to be running too.",
                 |ui| {
                     if widgets::toggle(ui, &mut state.settings.discord.enabled).changed() {
                         changed = true;
@@ -268,13 +270,23 @@ fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
             widgets::setting_row(
                 ui,
                 "Application ID",
-                "The ID of your own Discord application. Its name is what Discord shows as the game.",
+                "The Discord application whose name shows as the game. RustBlox comes with one, so this only needs changing if you would rather use your own.",
                 |ui| {
+                    if built_in {
+                        widgets::badge(ui, "built in", feedback::Tone::Neutral);
+                    } else if widgets::Button::new("Use the built in one")
+                        .tone(widgets::Tone::Ghost)
+                        .size(widgets::Size::Small)
+                        .show(ui)
+                        .clicked()
+                    {
+                        reset_id = true;
+                    }
                     if widgets::text_field(
                         ui,
                         &mut state.settings.discord.application_id,
                         "18 digits",
-                        190.0,
+                        170.0,
                     )
                     .changed()
                     {
@@ -322,9 +334,9 @@ fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(
-                        "RustBlox has no Discord application of its own, so it uses yours. \
-                         Make one at the Discord developer portal, name it whatever you want \
-                         Discord to show, and paste its Application ID above.",
+                        "Discord shows the name of the application, not the name of RustBlox. \
+                         To use your own instead, make one at the Discord developer portal, \
+                         name it whatever you want shown, and paste its Application ID above.",
                     )
                     .font(theme::text_style(theme::size::SMALL))
                     .color(theme.palette.text_muted),
@@ -333,6 +345,11 @@ fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
         },
     );
 
+    if reset_id {
+        state.settings.discord.application_id = crate::discord::DEFAULT_APPLICATION_ID.to_owned();
+        changed = true;
+        restart = true;
+    }
     if restart {
         state.flush_settings();
         state.refresh_presence();

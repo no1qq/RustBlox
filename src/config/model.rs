@@ -290,7 +290,7 @@ pub struct ModSettings {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct DiscordSettings {
     pub enabled: bool,
@@ -298,9 +298,23 @@ pub struct DiscordSettings {
     pub show_place_name: bool,
 }
 
+impl Default for DiscordSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            application_id: crate::discord::DEFAULT_APPLICATION_ID.to_owned(),
+            show_place_name: true,
+        }
+    }
+}
+
 impl DiscordSettings {
     pub fn is_usable(&self) -> bool {
         self.enabled && crate::discord::looks_like_application_id(&self.application_id)
+    }
+
+    pub fn is_built_in(&self) -> bool {
+        self.application_id.trim() == crate::discord::DEFAULT_APPLICATION_ID
     }
 
     fn validate(&mut self) -> Vec<String> {

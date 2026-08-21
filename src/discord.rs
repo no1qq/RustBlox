@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 
+pub const DEFAULT_APPLICATION_ID: &str = "1359984803008479304";
+
 const PIPES: u8 = 10;
 const MAX_FRAME: u32 = 64 * 1024;
 
@@ -287,6 +289,32 @@ mod tests {
             Ok(_) => panic!("nonsense was accepted as an application ID"),
             Err(err) => assert!(err.to_string().contains("17 to 20 digits")),
         }
+    }
+
+    #[test]
+    fn the_application_it_ships_with_is_one_discord_would_take() {
+        assert!(looks_like_application_id(DEFAULT_APPLICATION_ID));
+    }
+
+    #[test]
+    #[ignore = "needs Discord running"]
+    fn a_real_presence_reaches_discord() {
+        let id = std::env::var("RUSTBLOX_DISCORD_APP_ID")
+            .unwrap_or_else(|_| DEFAULT_APPLICATION_ID.to_owned());
+
+        let mut connection = Connection::open(&id).expect("Discord did not accept the handshake");
+        connection
+            .set(&Details {
+                line: "Playing Some Game".into(),
+                note: "Place 14705961406".into(),
+                started_at: Some(now()),
+            })
+            .expect("the activity was refused");
+
+        std::thread::sleep(std::time::Duration::from_secs(6));
+        connection
+            .clear()
+            .expect("the activity could not be cleared");
     }
 
     #[test]

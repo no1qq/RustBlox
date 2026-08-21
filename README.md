@@ -43,7 +43,7 @@ a mod, an injector or an account tool.
   the settings window directly.
 - Starts other programs of your choosing whenever Roblox starts.
 - Reads what you are playing out of the client's own log, and can show it on your
-  Discord profile through an application you register yourself.
+  Discord profile.
 - Starts simple. The Flags, Mods, Shortcuts and Installation pages and the Advanced
   settings tab stay hidden until you turn on Advanced options in Settings.
 
@@ -229,10 +229,11 @@ last. A Roblox install that RustBlox did not create is never touched.
 RustBlox can show what you are playing on your Discord profile. Two things about it are
 worth knowing before you turn it on.
 
-**It uses your own Discord application, not one of ours.** Make one at
+**Discord shows the name of an application, not the name of RustBlox.** One comes with
+it, so there is nothing to set up. To have Discord say something else, make your own at
 [the developer portal](https://discord.com/developers/applications), name it whatever
-you want Discord to show as the game, and paste its Application ID into Settings. There
-is no shared RustBlox application, so nothing is registered in anyone else's name.
+you want shown, and paste its Application ID into Settings. The field says **built in**
+while the one it shipped with is in use.
 
 **RustBlox stays open while you play.** A status has to be kept up to date, so with
 Discord on a launch leaves the small window up saying Roblox is running, and it closes
