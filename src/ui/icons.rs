@@ -5,6 +5,7 @@ pub enum Icon {
     Home,
     Rocket,
     Sliders,
+    Gauge,
     Flag,
     Info,
     Folder,
@@ -104,6 +105,18 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
                 grid.at(12.0, 21.6),
                 grid.at(13.6, 19.4),
             ]);
+        }
+        Icon::Gauge => {
+            let centre = grid.at(12.0, 15.0);
+            let radius = grid.len(8.0);
+            let mut arc = Vec::new();
+            for step in 0..=24 {
+                let angle = std::f32::consts::PI * (1.0 + step as f32 / 24.0);
+                arc.push(centre + Vec2::new(angle.cos() * radius, angle.sin() * radius));
+            }
+            path(arc);
+            path(vec![centre, grid.at(16.0, 10.5)]);
+            painter.circle_filled(centre, grid.len(1.4), color);
         }
         Icon::Sliders => {
             for (index, y) in [6.5_f32, 12.0, 17.5].iter().enumerate() {

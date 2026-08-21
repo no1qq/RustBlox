@@ -25,6 +25,7 @@ use theme::Theme;
 pub enum Page {
     #[default]
     Home,
+    Game,
     Installation,
     Flags,
     Settings,
@@ -32,15 +33,16 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [
+    pub const ALL: [Page; 6] = [
         Page::Home,
+        Page::Game,
         Page::Installation,
         Page::Flags,
         Page::Settings,
         Page::About,
     ];
 
-    const SIMPLE: [Page; 3] = [Page::Home, Page::Settings, Page::About];
+    const SIMPLE: [Page; 4] = [Page::Home, Page::Game, Page::Settings, Page::About];
 
     pub fn visible(advanced: bool) -> &'static [Page] {
         if advanced {
@@ -53,6 +55,7 @@ impl Page {
     pub fn label(self) -> &'static str {
         match self {
             Page::Home => "Home",
+            Page::Game => "Game",
             Page::Installation => "Installation",
             Page::Flags => "Flags",
             Page::Settings => "Settings",
@@ -63,6 +66,7 @@ impl Page {
     pub fn icon(self) -> icons::Icon {
         match self {
             Page::Home => icons::Icon::Home,
+            Page::Game => icons::Icon::Gauge,
             Page::Installation => icons::Icon::Package,
             Page::Flags => icons::Icon::Flag,
             Page::Settings => icons::Icon::Sliders,

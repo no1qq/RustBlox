@@ -10,8 +10,9 @@ use crate::platform::{self, SchemeRegistration};
 use crate::roblox::deploy::Deployment;
 use crate::roblox::detect::{Detection, ScanOptions};
 use crate::roblox::flags::{self, FlagProfile};
+use crate::roblox::gamesettings::{self, Snapshot};
 use crate::roblox::installer::InstallPlan;
-use crate::roblox::launch::{LaunchPlan, LaunchTarget};
+use crate::roblox::launch::{GamePlan, LaunchPlan, LaunchTarget};
 use crate::roblox::process::RobloxStatus;
 use crate::roblox::versions;
 use crate::{log_error, log_info, log_warn};
@@ -41,6 +42,7 @@ pub struct AppState {
     pub roblox: RobloxStatus,
     pub flags: FlagProfile,
     pub denied_flags: Vec<String>,
+    pub game: Snapshot,
     pub session: LaunchSession,
     pub install: InstallSession,
     pub flow: LaunchFlow,
@@ -56,7 +58,9 @@ pub struct AppState {
 
     settings_dirty_at: Option<Instant>,
     flags_dirty_at: Option<Instant>,
+    game_dirty_at: Option<Instant>,
     denied_checked_at: Option<Instant>,
+    game_checked_at: Option<Instant>,
     state_dirty: bool,
     last_poll: Instant,
     last_theme_probe: Instant,
@@ -114,6 +118,7 @@ impl AppState {
             roblox: RobloxStatus::default(),
             flags,
             denied_flags: Vec::new(),
+            game: Snapshot::default(),
             session: LaunchSession::default(),
             install: InstallSession::default(),
             flow: LaunchFlow::default(),
@@ -128,7 +133,9 @@ impl AppState {
             close_requested: false,
             settings_dirty_at: None,
             flags_dirty_at: None,
+            game_dirty_at: None,
             denied_checked_at: None,
+            game_checked_at: None,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
             last_theme_probe: Instant::now() - THEME_PROBE,
@@ -176,6 +183,12 @@ impl AppState {
         if let Some(since) = self.flags_dirty_at {
             if since.elapsed() >= SAVE_DEBOUNCE {
                 self.flush_flags();
+            }
+        }
+
+        if let Some(since) = self.game_dirty_at {
+            if since.elapsed() >= SAVE_DEBOUNCE {
+                self.flush_game_settings();
             }
         }
 
@@ -799,6 +812,7 @@ impl AppState {
             } else {
                 None
             },
+            game: self.game_plan(),
             backup_dir: self.store.paths().backup_dir(),
             extra_arguments: self.settings.advanced.extra_player_arguments.clone(),
             timeout: Duration::from_secs(self.settings.launch.launch_timeout_secs),
@@ -857,6 +871,77 @@ impl AppState {
         if let Err(err) = self.store.save_state(&self.persisted) {
             log_error!("state could not be saved: {err}");
         }
+    }
+
+    pub fn game_plan(&self) -> Option<GamePlan> {
+        if !self.settings.game.manage {
+            return None;
+        }
+        let path = gamesettings::settings_file()?;
+        Some(GamePlan {
+            path,
+            changes: self.settings.game.changes(),
+            lock: self.settings.game.lock,
+        })
+    }
+
+    pub fn refresh_game_snapshot(&mut self, force: bool) {
+        if !force
+            && self
+                .game_checked_at
+                .is_some_and(|at| at.elapsed() < DENIED_PROBE)
+        {
+            return;
+        }
+        self.game_checked_at = Some(Instant::now());
+        self.game = Snapshot::read();
+    }
+
+    pub fn mark_game_dirty(&mut self) {
+        self.mark_settings_dirty();
+        self.game_dirty_at = Some(Instant::now());
+    }
+
+    pub fn commit_game_settings(&mut self) {
+        self.mark_game_dirty();
+        self.flush_settings();
+        self.flush_game_settings();
+    }
+
+    pub fn flush_game_settings(&mut self) {
+        if self.game_dirty_at.take().is_none() {
+            return;
+        }
+
+        let Some(path) = gamesettings::settings_file() else {
+            return;
+        };
+
+        if !self.settings.game.manage {
+            match gamesettings::unlock(&path) {
+                Ok(true) => log_info!("released the lock on {}", path.display()),
+                Ok(false) => {}
+                Err(err) => log_warn!("the lock could not be released: {err}"),
+            }
+            self.refresh_game_snapshot(true);
+            return;
+        }
+
+        let changes = self.settings.game.changes();
+        let lock = self.settings.game.lock;
+        match gamesettings::apply(&path, &changes, lock, &self.store.paths().backup_dir()) {
+            Ok(report) => {
+                if report.outcome == gamesettings::Outcome::Written {
+                    log_info!("{} in {}", report.summary(), report.path.display());
+                }
+            }
+            Err(err) => {
+                log_error!("game settings could not be written: {err}");
+                self.toasts
+                    .error("Game settings could not be written", Some(err.to_string()));
+            }
+        }
+        self.refresh_game_snapshot(true);
     }
 
     pub fn refresh_denied_flags(&mut self) {
@@ -1048,6 +1133,10 @@ impl AppState {
         self.flush_state();
         self.mark_flags_dirty();
         self.flush_flags();
+        if self.settings.game.manage {
+            self.game_dirty_at = Some(Instant::now());
+            self.flush_game_settings();
+        }
         Ok(())
     }
 }

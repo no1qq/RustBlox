@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
+use crate::roblox::gamesettings::{self, Change};
+
 use super::migrate::CURRENT_VERSION;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -11,6 +13,7 @@ pub struct Settings {
     pub version: u32,
     pub advanced_mode: bool,
     pub launch: LaunchSettings,
+    pub game: GameSettings,
     pub appearance: AppearanceSettings,
     pub advanced: AdvancedSettings,
 }
@@ -21,6 +24,7 @@ impl Default for Settings {
             version: CURRENT_VERSION,
             advanced_mode: false,
             launch: LaunchSettings::default(),
+            game: GameSettings::default(),
             appearance: AppearanceSettings::default(),
             advanced: AdvancedSettings::default(),
         }
@@ -31,6 +35,7 @@ impl Settings {
     pub fn validate(&mut self) -> Vec<String> {
         let mut notes = Vec::new();
         notes.extend(self.launch.validate());
+        notes.extend(self.game.validate());
         notes.extend(self.appearance.validate());
         notes.extend(self.advanced.validate());
         self.version = CURRENT_VERSION;
@@ -131,6 +136,116 @@ impl StartupTarget {
                 "Rejoins the most recent quick launch entry, falling back to the home screen."
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct GameSettings {
+    pub manage: bool,
+    pub lock: bool,
+    pub framerate_cap: Option<u32>,
+    pub quality: Option<u8>,
+    pub performance_stats: Option<bool>,
+    pub transparency: Option<f32>,
+    pub reduced_motion: Option<bool>,
+    pub text_size: Option<u8>,
+    pub mouse_sensitivity: Option<f32>,
+    pub vr: Option<bool>,
+}
+
+impl GameSettings {
+    pub const MIN_FRAMERATE: u32 = 24;
+    pub const MAX_FRAMERATE: u32 = 1000;
+    pub const MAX_QUALITY: u8 = 10;
+    pub const MIN_TEXT_SIZE: u8 = 1;
+    pub const MAX_TEXT_SIZE: u8 = 4;
+    pub const MIN_SENSITIVITY: f32 = 0.05;
+    pub const MAX_SENSITIVITY: f32 = 4.0;
+
+    pub fn changes(&self) -> Vec<Change> {
+        let mut changes = Vec::new();
+        if !self.manage {
+            return changes;
+        }
+
+        if let Some(value) = self.framerate_cap {
+            changes.push(Change::int(gamesettings::FRAMERATE_CAP, value.into()));
+        }
+        if let Some(value) = self.quality {
+            changes.push(Change::token(gamesettings::QUALITY, value.into()));
+        }
+        if let Some(value) = self.performance_stats {
+            changes.push(Change::flag(gamesettings::PERFORMANCE_STATS, value));
+        }
+        if let Some(value) = self.transparency {
+            changes.push(Change::float(gamesettings::TRANSPARENCY, value));
+        }
+        if let Some(value) = self.reduced_motion {
+            changes.push(Change::flag(gamesettings::REDUCED_MOTION, value));
+        }
+        if let Some(value) = self.text_size {
+            changes.push(Change::token(gamesettings::TEXT_SIZE, value.into()));
+        }
+        if let Some(value) = self.mouse_sensitivity {
+            changes.push(Change::float(gamesettings::MOUSE_SENSITIVITY, value));
+            changes.push(Change::point(gamesettings::MOUSE_FIRST_PERSON, value));
+            changes.push(Change::point(gamesettings::MOUSE_THIRD_PERSON, value));
+        }
+        if let Some(value) = self.vr {
+            changes.push(Change::flag(gamesettings::VR_ENABLED, value));
+        }
+
+        changes
+    }
+
+    fn validate(&mut self) -> Vec<String> {
+        let mut notes = Vec::new();
+
+        if let Some(value) = self.framerate_cap {
+            if !(Self::MIN_FRAMERATE..=Self::MAX_FRAMERATE).contains(&value) {
+                notes.push(format!(
+                    "frame rate limit of {value} is out of range, cleared"
+                ));
+                self.framerate_cap = None;
+            }
+        }
+        if let Some(value) = self.quality {
+            if value > Self::MAX_QUALITY {
+                notes.push(format!(
+                    "graphics quality of {value} is out of range, cleared"
+                ));
+                self.quality = None;
+            }
+        }
+        if let Some(value) = self.text_size {
+            if !(Self::MIN_TEXT_SIZE..=Self::MAX_TEXT_SIZE).contains(&value) {
+                notes.push(format!("text size of {value} is out of range, cleared"));
+                self.text_size = None;
+            }
+        }
+        if let Some(value) = self.transparency {
+            if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                notes.push(format!("transparency of {value} is out of range, cleared"));
+                self.transparency = None;
+            }
+        }
+        if let Some(value) = self.mouse_sensitivity {
+            if !value.is_finite()
+                || !(Self::MIN_SENSITIVITY..=Self::MAX_SENSITIVITY).contains(&value)
+            {
+                notes.push(format!(
+                    "mouse sensitivity of {value} is out of range, cleared"
+                ));
+                self.mouse_sensitivity = None;
+            }
+        }
+
+        if !self.manage && self.lock {
+            self.lock = false;
+        }
+
+        notes
     }
 }
 
@@ -430,5 +545,85 @@ impl LaunchOutcome {
             LaunchOutcome::Failed => "Failed",
             LaunchOutcome::Cancelled => "Cancelled",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nothing_is_written_while_the_page_is_switched_off() {
+        let game = GameSettings {
+            manage: false,
+            framerate_cap: Some(240),
+            ..GameSettings::default()
+        };
+        assert!(game.changes().is_empty());
+    }
+
+    #[test]
+    fn only_the_values_that_are_managed_are_written() {
+        let game = GameSettings {
+            manage: true,
+            framerate_cap: Some(240),
+            performance_stats: Some(true),
+            ..GameSettings::default()
+        };
+
+        let changes = game.changes();
+        let names: Vec<&str> = changes.iter().map(|change| change.name).collect();
+
+        assert_eq!(names, vec!["FramerateCap", "PerformanceStatsVisible"]);
+        assert_eq!(changes[0].value, "240");
+        assert_eq!(changes[1].value, "true");
+    }
+
+    #[test]
+    fn mouse_sensitivity_covers_all_three_properties() {
+        let game = GameSettings {
+            manage: true,
+            mouse_sensitivity: Some(0.5),
+            ..GameSettings::default()
+        };
+
+        let names: Vec<&str> = game.changes().iter().map(|change| change.name).collect();
+        assert_eq!(
+            names,
+            vec![
+                "MouseSensitivity",
+                "MouseSensitivityFirstPerson",
+                "MouseSensitivityThirdPerson"
+            ]
+        );
+    }
+
+    #[test]
+    fn values_out_of_range_are_cleared_rather_than_written() {
+        let mut game = GameSettings {
+            manage: true,
+            framerate_cap: Some(5),
+            quality: Some(40),
+            transparency: Some(4.0),
+            mouse_sensitivity: Some(f32::NAN),
+            text_size: Some(9),
+            ..GameSettings::default()
+        };
+
+        let notes = game.validate();
+
+        assert_eq!(notes.len(), 5, "{notes:?}");
+        assert!(game.changes().is_empty());
+    }
+
+    #[test]
+    fn the_lock_cannot_stay_on_once_nothing_is_managed() {
+        let mut game = GameSettings {
+            manage: false,
+            lock: true,
+            ..GameSettings::default()
+        };
+        game.validate();
+        assert!(!game.lock);
     }
 }

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use crate::error::{Context, Error, Result};
+use crate::error::{Error, Result};
 use crate::util::fs;
 
 use super::install::Installation;
@@ -160,17 +160,7 @@ pub struct Preset {
     pub pairs: &'static [(&'static str, &'static str)],
 }
 
-pub const PRESETS: [Preset; 7] = [
-    Preset {
-        name: "Show FPS",
-        detail: "Draws the frame counter Roblox uses internally in the corner of the client.",
-        pairs: &[("FFlagDebugDisplayFPS", "true")],
-    },
-    Preset {
-        name: "Unlock frame rate",
-        detail: "Raises the frame cap the client schedules against to 240 instead of 60.",
-        pairs: &[("DFIntTaskSchedulerTargetFps", "240")],
-    },
+pub const PRESETS: [Preset; 4] = [
     Preset {
         name: "Prefer Vulkan",
         detail: "Asks the client to render through Vulkan and turns the other two off.",
@@ -202,11 +192,6 @@ pub const PRESETS: [Preset; 7] = [
         name: "Future lighting",
         detail: "Forces the newest lighting technology instead of whatever the place picked.",
         pairs: &[("FFlagDebugForceFutureIsBrightPhase3", "true")],
-    },
-    Preset {
-        name: "No player shadows",
-        detail: "Drops the shadow intensity to zero, which usually helps on weak hardware.",
-        pairs: &[("FIntRenderShadowIntensity", "0")],
     },
 ];
 
@@ -285,8 +270,7 @@ const DENIED_MARKER: &str = "Denied local configuration for: ";
 const LOG_SCAN_BYTES: usize = 128 * 1024;
 
 pub fn client_log_dir() -> Option<PathBuf> {
-    let local = std::env::var_os("LOCALAPPDATA")?;
-    Some(PathBuf::from(local).join("Roblox").join("logs"))
+    Some(super::local_dir()?.join("logs"))
 }
 
 pub fn denied_by_client(log_dir: &Path) -> Vec<String> {
@@ -371,7 +355,7 @@ pub fn apply_to(
     }
 
     fs::ensure_dir(&install.client_settings_dir())?;
-    let backup = back_up_existing(&target, backup_dir)?;
+    let backup = fs::back_up(&target, backup_dir, BACKUPS_KEPT)?;
     fs::write_atomic(&target, text.as_bytes())?;
 
     Ok(ApplyReport {
@@ -380,48 +364,6 @@ pub fn apply_to(
         count: profile.active_count(),
         unchanged: false,
     })
-}
-
-fn back_up_existing(target: &Path, backup_dir: &Path) -> Result<Option<PathBuf>> {
-    if !target.is_file() {
-        return Ok(None);
-    }
-    let contents = std::fs::read(target).ctx_path("could not read", target)?;
-    fs::ensure_dir(backup_dir)?;
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let path = backup_dir.join(format!("ClientAppSettings-{stamp}.json"));
-    fs::write_atomic(&path, &contents)?;
-    prune_backups(backup_dir, BACKUPS_KEPT);
-    Ok(Some(path))
-}
-
-fn prune_backups(backup_dir: &Path, keep: usize) {
-    let Ok(entries) = std::fs::read_dir(backup_dir) else {
-        return;
-    };
-
-    let mut found: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| {
-                        name.starts_with("ClientAppSettings-") && name.ends_with(".json")
-                    })
-        })
-        .collect();
-
-    if found.len() <= keep {
-        return;
-    }
-
-    found.sort();
-    for path in found.iter().take(found.len() - keep) {
-        let _ = std::fs::remove_file(path);
-    }
 }
 
 #[cfg(test)]
@@ -556,7 +498,7 @@ mod tests {
 
     #[test]
     fn removing_a_preset_takes_its_flags_with_it() {
-        let preset = preset_named("Show FPS").unwrap();
+        let preset = preset_named("Future lighting").unwrap();
         let mut profile = FlagProfile::default();
         profile.apply_preset(preset);
         profile.remove_preset(preset);
@@ -567,7 +509,7 @@ mod tests {
 
     #[test]
     fn a_disabled_entry_does_not_count_as_a_preset_being_on() {
-        let preset = preset_named("Show FPS").unwrap();
+        let preset = preset_named("Future lighting").unwrap();
         let mut profile = FlagProfile::default();
         profile.apply_preset(preset);
         profile.entries[0].enabled = false;

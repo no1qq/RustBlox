@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-pub const CURRENT_VERSION: u32 = 3;
+pub const CURRENT_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Migration {
@@ -40,6 +40,10 @@ fn steps_for(version: u32) -> Option<(&'static str, Step)> {
             "turned on writing the flag profile on every launch",
             step_v2_to_v3,
         )),
+        3 => Some((
+            "added the Roblox game settings section, left switched off",
+            step_v3_to_v4,
+        )),
         _ => None,
     }
 }
@@ -74,6 +78,16 @@ fn step_v2_to_v3(root: &mut Map<String, Value>) {
         .or_insert_with(|| Value::Object(Map::new()));
     if let Some(advanced) = advanced.as_object_mut() {
         advanced.insert("apply_flag_profile".into(), Value::Bool(true));
+    }
+}
+
+fn step_v3_to_v4(root: &mut Map<String, Value>) {
+    let game = root
+        .entry("game")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(game) = game.as_object_mut() {
+        game.entry("manage").or_insert(Value::Bool(false));
+        game.entry("lock").or_insert(Value::Bool(false));
     }
 }
 
@@ -203,6 +217,26 @@ mod tests {
 
         assert_eq!(value["advanced"]["apply_flag_profile"], json!(true));
         assert!(outcome.note().unwrap().contains("flag profile"));
+    }
+
+    #[test]
+    fn the_game_settings_section_arrives_switched_off() {
+        let mut value = json!({"version": 3, "advanced": {"channel": "zflag"}});
+        let outcome = migrate(&mut value);
+
+        assert_eq!(value["game"]["manage"], json!(false));
+        assert_eq!(value["game"]["lock"], json!(false));
+        assert_eq!(value["advanced"]["channel"], json!("zflag"));
+        assert!(outcome.note().unwrap().contains("game settings"));
+    }
+
+    #[test]
+    fn an_existing_game_section_is_left_as_it_was() {
+        let mut value = json!({"version": 3, "game": {"manage": true, "framerate_cap": 240}});
+        migrate(&mut value);
+
+        assert_eq!(value["game"]["manage"], json!(true));
+        assert_eq!(value["game"]["framerate_cap"], json!(240));
     }
 
     #[test]

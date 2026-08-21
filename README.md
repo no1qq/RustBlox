@@ -24,6 +24,10 @@ a mod, an injector or an account tool.
 - Can take over the `roblox-player` and `roblox` link handlers so launches from the
   website route through RustBlox, saving whatever handler was there before so it can
   be put back exactly.
+- Sets the things Roblox keeps for itself: the frame rate limit, the graphics quality,
+  the performance stats overlay, interface transparency, reduced motion, text size,
+  mouse sensitivity and VR. These are the settings the client actually honours, and
+  RustBlox writes them straight into Roblox's own settings file before each launch.
 - Edits the client flag file (`ClientAppSettings.json`) with validation, presets for the
   common ones, clipboard import and export, and a timestamped backup when it replaces a
   file it did not write. There is no save step: a flag you add, change or turn off is
@@ -158,6 +162,12 @@ broken client. A test that runs against the live CDN checks the map is still com
 - **Deep links depend on the client.** `roblox://experiences/start` is resolved by
   the Roblox client using the account signed in there. If no account is signed in,
   the client shows its own sign-in flow. That is outside RustBlox's control.
+- **Most flags are refused by the client.** Roblox 0.735 only honours an allowlist of
+  local overrides. It reads the whole file, then writes
+  `Denied local configuration for: <name>` into its log for every flag it throws out.
+  The Flags page shows you which of yours came back refused. That is Roblox's decision,
+  not a bug in the writer, and no launcher can talk it out of it. Anything the client
+  refuses that has a real setting behind it lives on the Game page instead.
 - **Flags are unsupported by Roblox.** The Flags page writes a file the client reads
   at startup. Roblox does not document it, and can change or ignore any value at any
   time, so a preset that stops working is Roblox renaming a flag, not RustBlox losing
@@ -198,9 +208,30 @@ well is a choice on that screen, so keeping it means a reinstall starts where yo
 off. Any registered link handler is put back first, and the executable removes itself
 last. A Roblox install that RustBlox did not create is never touched.
 
+## Game settings
+
+Roblox keeps its own settings in `%LOCALAPPDATA%\Roblox\GlobalBasicSettings_13.xml`,
+and that is the only place the client reads them from, whichever folder it runs out of.
+So the Game page writes that file, which is the one thing RustBlox touches that it does
+not own. Because of that:
+
+- It is off until you turn it on, and it writes nothing at all until then.
+- The original is copied into the RustBlox backups folder before the first change.
+- Only the values you switch on are written. Every other property in that file is left
+  byte for byte as Roblox left it, and each row starts from the value Roblox already
+  has, so switching a row on changes nothing until you move the control.
+- Roblox rewrites the file when the client closes, so RustBlox writes the values again
+  before every launch. **Keep them locked** marks the file read only afterwards, which
+  stops the client putting its own values back. While that is on, settings you change
+  inside Roblox stop sticking. Turning it off hands the file straight back.
+
+This is also where the frame rate limit and the performance stats overlay live, because
+the flags that used to do those two jobs are refused by the client now.
+
 ## Simple by default
 
-Everything needed to install and play Roblox is on the Home, Settings and About pages.
+Everything needed to install and play Roblox is on the Home, Game, Settings and About
+pages.
 Turning on **Advanced options** in Settings adds the Flags page, the Installation page
 with its download controls and launch link handling, and the Advanced settings tab.
 Turning it back off hides them again without changing anything they configured.
@@ -248,7 +279,7 @@ src/
     windows/      process enumeration, file version info, shell, registry
   selfupdate.rs   GitHub releases, download and in place swap
   roblox/         detection, deployment, installer, version housekeeping, launch
-                  pipeline, URIs, flags
+                  pipeline, URIs, flags, Roblox's own game settings
   uninstall.rs    removing RustBlox and the data it created
   ui/             theme, icons, app icon, widgets, pages, chrome, launcher, splash
   util/           filesystem helpers, formatting, version compare, logging

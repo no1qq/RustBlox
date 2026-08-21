@@ -8,6 +8,7 @@ use crate::platform;
 
 use super::detect;
 use super::flags::{self, FlagProfile};
+use super::gamesettings::{self, Change};
 use super::process;
 use super::uri;
 
@@ -160,12 +161,20 @@ impl LaunchFailure {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GamePlan {
+    pub path: PathBuf,
+    pub changes: Vec<Change>,
+    pub lock: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct LaunchPlan {
     pub target: LaunchTarget,
     pub scan: detect::ScanOptions,
     pub verify: bool,
     pub flag_profile: Option<FlagProfile>,
+    pub game: Option<GamePlan>,
     pub backup_dir: PathBuf,
     pub extra_arguments: String,
     pub timeout: Duration,
@@ -308,20 +317,24 @@ fn execute(
     check_cancel(cancel, StepId::Configure)?;
 
     active(emit, StepId::Configure);
+    let mut notes: Vec<String> = Vec::new();
     match &plan.flag_profile {
         Some(profile) => match flags::apply_to(&install, profile, &plan.backup_dir) {
-            Ok(report) => done(
-                emit,
-                StepId::Configure,
-                format!("wrote {} flags", report.count),
-            ),
+            Ok(report) => notes.push(format!("wrote {} flags", report.count)),
             Err(err) => {
                 failed(emit, StepId::Configure, err.to_string());
                 return Err(LaunchFailure::from_error(StepId::Configure, &err));
             }
         },
-        None => skipped(emit, StepId::Configure, "no flag profile is applied"),
+        None => notes.push("no flag profile is applied".into()),
     }
+    if let Some(game) = &plan.game {
+        match gamesettings::apply(&game.path, &game.changes, game.lock, &plan.backup_dir) {
+            Ok(report) => notes.push(report.summary()),
+            Err(err) => notes.push(format!("game settings were left alone: {err}")),
+        }
+    }
+    done(emit, StepId::Configure, notes.join(", "));
     check_cancel(cancel, StepId::Start)?;
 
     active(emit, StepId::Start);
