@@ -230,12 +230,118 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
 
     if advanced {
         ui.add_space(theme.metrics.gap_lg);
+        changed |= discord(ui, theme, state);
+        ui.add_space(theme.metrics.gap_lg);
         changed |= programs(ui, theme, state);
     }
 
     if changed {
         state.mark_settings_dirty();
     }
+}
+
+fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
+    let mut changed = false;
+    let mut restart = false;
+    let mut open_portal = false;
+    let status = state.presence_status();
+    let usable = state.settings.discord.is_usable();
+
+    widgets::section(
+        ui,
+        "Discord",
+        Some("Shows what you are playing on your Discord profile, using the application you registered."),
+        |ui| {
+            widgets::setting_row(
+                ui,
+                "Show what you are playing",
+                "RustBlox stays open while Roblox runs so it can keep the status up to date, and closes with it.",
+                |ui| {
+                    if widgets::toggle(ui, &mut state.settings.discord.enabled).changed() {
+                        changed = true;
+                        restart = true;
+                    }
+                },
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
+                "Application ID",
+                "The ID of your own Discord application. Its name is what Discord shows as the game.",
+                |ui| {
+                    if widgets::text_field(
+                        ui,
+                        &mut state.settings.discord.application_id,
+                        "18 digits",
+                        190.0,
+                    )
+                    .changed()
+                    {
+                        changed = true;
+                        restart = true;
+                    }
+                },
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
+                "Look up the game's name",
+                "Asks roblox.com what the place you are in is called. Without it the status says the place ID.",
+                |ui| {
+                    if widgets::toggle(ui, &mut state.settings.discord.show_place_name).changed() {
+                        changed = true;
+                    }
+                },
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::nested(ui, |ui| {
+                ui.horizontal(|ui| {
+                    widgets::badge(
+                        ui,
+                        &status.label(),
+                        if status.is_failed() {
+                            feedback::Tone::Danger
+                        } else if usable {
+                            feedback::Tone::Success
+                        } else {
+                            feedback::Tone::Neutral
+                        },
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        open_portal = widgets::Button::new("Make an application")
+                            .icon(Icon::External)
+                            .tone(widgets::Tone::Ghost)
+                            .size(widgets::Size::Small)
+                            .show(ui)
+                            .clicked();
+                    });
+                });
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(
+                        "RustBlox has no Discord application of its own, so it uses yours. \
+                         Make one at the Discord developer portal, name it whatever you want \
+                         Discord to show, and paste its Application ID above.",
+                    )
+                    .font(theme::text_style(theme::size::SMALL))
+                    .color(theme.palette.text_muted),
+                );
+            });
+        },
+    );
+
+    if restart {
+        state.flush_settings();
+        state.refresh_presence();
+    }
+    if open_portal {
+        state.open_url("https://discord.com/developers/applications");
+    }
+
+    changed
 }
 
 fn programs(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {

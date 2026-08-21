@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-pub const CURRENT_VERSION: u32 = 5;
+pub const CURRENT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Migration {
@@ -45,6 +45,10 @@ fn steps_for(version: u32) -> Option<(&'static str, Step)> {
             step_v3_to_v4,
         )),
         4 => Some(("added the mods section, left switched off", step_v4_to_v5)),
+        5 => Some((
+            "added the Discord section, left switched off",
+            step_v5_to_v6,
+        )),
         _ => None,
     }
 }
@@ -98,6 +102,18 @@ fn step_v4_to_v5(root: &mut Map<String, Value>) {
         .or_insert_with(|| Value::Object(Map::new()));
     if let Some(mods) = mods.as_object_mut() {
         mods.entry("enabled").or_insert(Value::Bool(false));
+    }
+}
+
+fn step_v5_to_v6(root: &mut Map<String, Value>) {
+    let discord = root
+        .entry("discord")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(discord) = discord.as_object_mut() {
+        discord.entry("enabled").or_insert(Value::Bool(false));
+        discord
+            .entry("show_place_name")
+            .or_insert(Value::Bool(true));
     }
 }
 
@@ -247,6 +263,16 @@ mod tests {
 
         assert_eq!(value["mods"]["enabled"], json!(false));
         assert!(outcome.note().unwrap().contains("mods"));
+    }
+
+    #[test]
+    fn the_discord_section_arrives_switched_off() {
+        let mut value = json!({"version": 5});
+        let outcome = migrate(&mut value);
+
+        assert_eq!(value["discord"]["enabled"], json!(false));
+        assert_eq!(value["discord"]["show_place_name"], json!(true));
+        assert!(outcome.note().unwrap().contains("Discord"));
     }
 
     #[test]

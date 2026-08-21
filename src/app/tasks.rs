@@ -23,6 +23,7 @@ pub enum Update {
     Swept(Sweep),
     AppRelease(Box<std::result::Result<Option<Release>, String>>),
     AppDownload(AppDownload),
+    GameName { place_id: u64, name: String },
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +112,19 @@ impl Tasks {
         self.spawn("scan", move |emit| {
             let detection = detect::scan(&options);
             emit(Update::Scanned(Box::new(detection)));
+        });
+    }
+
+    pub fn look_up_place(&self, place_id: u64, universe_id: Option<u64>) {
+        self.spawn("game-name", move |emit| {
+            let universe = match universe_id {
+                Some(universe) => Ok(universe),
+                None => crate::roblox::games::universe_of(place_id),
+            };
+            match universe.and_then(crate::roblox::games::name_of) {
+                Ok(name) => emit(Update::GameName { place_id, name }),
+                Err(err) => crate::log_warn!("place {place_id} has no name: {err}"),
+            }
         });
     }
 
@@ -205,7 +219,7 @@ impl Tasks {
                 Update::AppRelease(_) => self.app_checking = false,
                 Update::AppDownload(AppDownload::Finished(_)) => self.app_downloading = false,
                 Update::AppDownload(_) => {}
-                Update::Launch(_) | Update::Install(_) => {}
+                Update::Launch(_) | Update::Install(_) | Update::GameName { .. } => {}
             }
             updates.push(update);
         }

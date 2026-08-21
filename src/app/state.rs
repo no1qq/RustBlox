@@ -45,6 +45,7 @@ pub struct AppState {
     pub latest_note: Option<String>,
     pub roblox: RobloxStatus,
     pub activity: Activity,
+    pub place_names: std::collections::HashMap<u64, String>,
     pub flags: FlagProfile,
     pub denied_flags: Vec<String>,
     pub game: Snapshot,
@@ -71,6 +72,9 @@ pub struct AppState {
     mods_checked_at: Option<Instant>,
     shortcuts_checked_at: Option<Instant>,
     activity_checked_at: Option<Instant>,
+    activity_since: Option<u64>,
+    presence: super::presence::Presence,
+    client_seen: bool,
     state_dirty: bool,
     last_poll: Instant,
     last_theme_probe: Instant,
@@ -127,6 +131,7 @@ impl AppState {
             latest_note: None,
             roblox: RobloxStatus::default(),
             activity: Activity::default(),
+            place_names: std::collections::HashMap::new(),
             flags,
             denied_flags: Vec::new(),
             game: Snapshot::default(),
@@ -152,6 +157,9 @@ impl AppState {
             mods_checked_at: None,
             shortcuts_checked_at: None,
             activity_checked_at: None,
+            activity_since: None,
+            presence: super::presence::Presence::default(),
+            client_seen: false,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
             last_theme_probe: Instant::now() - THEME_PROBE,
@@ -248,7 +256,9 @@ impl AppState {
             Update::Processes(status) => {
                 let was_running = self.roblox.player_running();
                 self.roblox = status;
-                if was_running && !self.roblox.player_running() {
+                if self.roblox.player_running() {
+                    self.client_seen = true;
+                } else if was_running {
                     log_info!("the Roblox client closed");
                 }
             }
@@ -290,6 +300,11 @@ impl AppState {
                     self.app_update.check_failed(message);
                 }
             },
+            Update::GameName { place_id, name } => {
+                log_info!("place {place_id} is {name}");
+                self.place_names.insert(place_id, name);
+                self.sync_presence();
+            }
             Update::AppDownload(AppDownload::Progress { done, total }) => {
                 self.app_update.progress(done, total)
             }
@@ -505,7 +520,7 @@ impl AppState {
             return;
         }
 
-        if self.session.phase == Phase::Succeeded {
+        if self.session.phase == Phase::Succeeded && !self.stays_open_after_launch() {
             self.close_requested = true;
         }
     }
@@ -580,6 +595,9 @@ impl AppState {
 
     fn finish_flow(&mut self) {
         match self.session.phase {
+            Phase::Succeeded if self.stays_open_after_launch() => {
+                self.flow.stage = FlowStage::Watching;
+            }
             Phase::Succeeded => self.flow.stage = FlowStage::Finished,
             Phase::Cancelled => self
                 .flow
@@ -655,6 +673,16 @@ impl AppState {
             FlowStage::Finished => FlowStatus {
                 headline: "Roblox is running".into(),
                 detail: "Have fun.".into(),
+                progress: Some(1.0),
+            },
+            FlowStage::Watching => FlowStatus {
+                headline: "Roblox is running".into(),
+                detail: match self.presence_status() {
+                    super::presence::Status::On => {
+                        format!("{}, and Discord is being told.", self.activity.summary())
+                    }
+                    other => other.label(),
+                },
                 progress: Some(1.0),
             },
             FlowStage::Failed => FlowStatus {
@@ -919,7 +947,9 @@ impl AppState {
         if !self.settings.launch.track_activity || !self.roblox.player_running() {
             if self.activity != Activity::default() {
                 self.activity = Activity::default();
+                self.activity_since = None;
             }
+            self.sync_presence();
             return;
         }
 
@@ -934,10 +964,84 @@ impl AppState {
         let found = crate::roblox::log_dir()
             .map(|dir| activity::read(&dir))
             .unwrap_or_default();
+
         if !found.is_same_place(&self.activity) {
             log_info!("activity: {}", found.summary());
+            self.activity_since = found.in_game.then(crate::discord::now);
+            if let Some(place) = found.place_id.filter(|_| found.in_game) {
+                self.look_up_place(place, found.universe_id);
+            }
         }
         self.activity = found;
+        self.sync_presence();
+    }
+
+    fn look_up_place(&mut self, place_id: u64, universe_id: Option<u64>) {
+        if !self.settings.discord.is_usable()
+            || !self.settings.discord.show_place_name
+            || self.place_names.contains_key(&place_id)
+        {
+            return;
+        }
+        self.tasks.look_up_place(place_id, universe_id);
+    }
+
+    pub fn presence_status(&self) -> super::presence::Status {
+        self.presence.status()
+    }
+
+    fn sync_presence(&mut self) {
+        let wanted = self.settings.discord.is_usable();
+        if wanted != self.presence.is_running() {
+            if wanted {
+                log_info!("turning the Discord presence on");
+                self.presence
+                    .start(self.settings.discord.application_id.clone());
+            } else {
+                self.presence.stop();
+            }
+        }
+        if !wanted {
+            return;
+        }
+
+        if !self.roblox.player_running() {
+            self.presence.hide();
+            return;
+        }
+
+        let line = match (self.activity.in_game, self.activity.place_id) {
+            (true, Some(place)) => match self.place_names.get(&place) {
+                Some(name) => format!("Playing {name}"),
+                None => "In a game".to_owned(),
+            },
+            (true, None) => "In a game".to_owned(),
+            (false, _) => "In the Roblox app".to_owned(),
+        };
+
+        let note = match (self.activity.in_game, self.activity.place_id) {
+            (true, Some(place)) => format!("Place {place}"),
+            _ => String::new(),
+        };
+
+        self.presence.show(crate::discord::Details {
+            line,
+            note,
+            started_at: self.activity_since,
+        });
+    }
+
+    pub fn refresh_presence(&mut self) {
+        self.presence.stop();
+        self.sync_presence();
+    }
+
+    pub fn stays_open_after_launch(&self) -> bool {
+        self.settings.discord.is_usable()
+    }
+
+    pub fn left_the_client(&self) -> bool {
+        self.client_seen && !self.roblox.player_running()
     }
 
     pub fn refresh_shortcuts(&mut self, force: bool) {
@@ -1403,6 +1507,7 @@ impl AppState {
             self.game_dirty_at = Some(Instant::now());
             self.flush_game_settings();
         }
+        self.presence.stop();
         Ok(())
     }
 }

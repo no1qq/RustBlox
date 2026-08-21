@@ -42,6 +42,8 @@ a mod, an injector or an account tool.
 - Writes desktop and Start menu shortcuts, including ones that launch Roblox or open
   the settings window directly.
 - Starts other programs of your choosing whenever Roblox starts.
+- Reads what you are playing out of the client's own log, and can show it on your
+  Discord profile through an application you register yourself.
 - Starts simple. The Flags, Mods, Shortcuts and Installation pages and the Advanced
   settings tab stay hidden until you turn on Advanced options in Settings.
 
@@ -200,7 +202,9 @@ Launch Roblox opens a compact progress window with the app icon, one line saying
 is happening, a progress bar and Cancel. It carries the whole pipeline: the update
 check, the download if there is one, the configuration, and the wait for the client.
 Once the client is running the window closes, and RustBlox with it. A failure leaves
-the window up with the reason, Try again, and Close.
+the window up with the reason, Try again, and Close. The one exception is Discord: with
+the presence on, that window stays up saying Roblox is running and closes itself when
+the client does, because the status has to be kept up to date from somewhere.
 
 Configure settings opens the full window. Home there is a dashboard: whether the client
 is running, what pressing Launch would open, the version on disk against the one Roblox
@@ -219,6 +223,30 @@ logs, its saved state and its flag profile. Removing `%APPDATA%\RustBlox\config`
 well is a choice on that screen, so keeping it means a reinstall starts where you left
 off. Any registered link handler is put back first, and the executable removes itself
 last. A Roblox install that RustBlox did not create is never touched.
+
+## Discord
+
+RustBlox can show what you are playing on your Discord profile. Two things about it are
+worth knowing before you turn it on.
+
+**It uses your own Discord application, not one of ours.** Make one at
+[the developer portal](https://discord.com/developers/applications), name it whatever
+you want Discord to show as the game, and paste its Application ID into Settings. There
+is no shared RustBlox application, so nothing is registered in anyone else's name.
+
+**RustBlox stays open while you play.** A status has to be kept up to date, so with
+Discord on a launch leaves the small window up saying Roblox is running, and it closes
+itself when the client does. With Discord off, RustBlox closes the moment the client is
+up, exactly as before.
+
+What it shows: the name of the game, the place ID, and how long you have been in it.
+The name is fetched from the public Roblox web API, once per place, and only while
+Discord is on. That is the only request RustBlox makes that is not about installing or
+updating something, and turning off **Look up the game's name** stops even that.
+
+Reading what you are playing is separate, on by default, and never leaves the machine:
+it comes out of the client's own log file, and Home uses it to say whether you are in a
+game or sitting on the Roblox home screen.
 
 ## Programs alongside Roblox
 

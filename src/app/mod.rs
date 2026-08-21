@@ -1,5 +1,6 @@
 mod flow;
 mod install_session;
+mod presence;
 mod selfupdate;
 mod session;
 mod state;

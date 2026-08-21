@@ -4,6 +4,7 @@ pub mod activity;
 pub mod deploy;
 pub mod detect;
 pub mod flags;
+pub mod games;
 pub mod gamesettings;
 pub mod install;
 pub mod installer;

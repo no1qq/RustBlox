@@ -20,6 +20,7 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
     let mut cancel = false;
     let mut retry = false;
     let mut dismiss = false;
+    let mut close = false;
 
     ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -45,6 +46,12 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
                     }
                     FlowStage::Finished => {
                         dismiss = widgets::Button::primary("Done")
+                            .min_width(BUTTON)
+                            .show(ui)
+                            .clicked();
+                    }
+                    FlowStage::Watching => {
+                        close = widgets::Button::primary("Close RustBlox")
                             .min_width(BUTTON)
                             .show(ui)
                             .clicked();
@@ -103,11 +110,21 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
     if stage == FlowStage::Finished {
         state.close_requested = true;
     }
+    if stage == FlowStage::Watching {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(700));
+        if !state.roblox.player_running() && state.left_the_client() {
+            state.close_requested = true;
+        }
+    }
     if cancel {
         state.cancel_flow();
     }
     if retry {
         state.retry_flow();
+    }
+    if close {
+        state.close_requested = true;
     }
     if dismiss {
         leave(state, ui_state);

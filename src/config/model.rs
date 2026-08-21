@@ -15,6 +15,7 @@ pub struct Settings {
     pub launch: LaunchSettings,
     pub game: GameSettings,
     pub mods: ModSettings,
+    pub discord: DiscordSettings,
     pub appearance: AppearanceSettings,
     pub advanced: AdvancedSettings,
 }
@@ -27,6 +28,7 @@ impl Default for Settings {
             launch: LaunchSettings::default(),
             game: GameSettings::default(),
             mods: ModSettings::default(),
+            discord: DiscordSettings::default(),
             appearance: AppearanceSettings::default(),
             advanced: AdvancedSettings::default(),
         }
@@ -38,6 +40,7 @@ impl Settings {
         let mut notes = Vec::new();
         notes.extend(self.launch.validate());
         notes.extend(self.game.validate());
+        notes.extend(self.discord.validate());
         notes.extend(self.appearance.validate());
         notes.extend(self.advanced.validate());
         self.version = CURRENT_VERSION;
@@ -285,6 +288,31 @@ impl GameSettings {
 #[serde(default)]
 pub struct ModSettings {
     pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct DiscordSettings {
+    pub enabled: bool,
+    pub application_id: String,
+    pub show_place_name: bool,
+}
+
+impl DiscordSettings {
+    pub fn is_usable(&self) -> bool {
+        self.enabled && crate::discord::looks_like_application_id(&self.application_id)
+    }
+
+    fn validate(&mut self) -> Vec<String> {
+        let mut notes = Vec::new();
+        self.application_id = self.application_id.trim().to_owned();
+
+        if self.enabled && !crate::discord::looks_like_application_id(&self.application_id) {
+            self.enabled = false;
+            notes.push("Discord was switched off because its application ID is not usable".into());
+        }
+        notes
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]

@@ -6,6 +6,7 @@ pub enum FlowStage {
     Idle,
     Preparing,
     Launching,
+    Watching,
     Finished,
     Failed,
 }

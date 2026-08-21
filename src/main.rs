@@ -3,6 +3,7 @@
 mod app;
 mod cli;
 mod config;
+mod discord;
 mod error;
 mod platform;
 mod roblox;
