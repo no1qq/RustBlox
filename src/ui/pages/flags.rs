@@ -26,6 +26,7 @@ enum Action {
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
     let mut action = None;
+    state.refresh_denied_flags();
 
     widgets::page_header(
         ui,
@@ -62,6 +63,20 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         "Roblox does not document or support editing this file. Unknown values are ignored, bad values can stop the client from starting, and Roblox may change or remove any of them without notice. RustBlox keeps a timestamped copy of any file it replaces.");
     ui.add_space(theme.metrics.gap_lg);
 
+    let refused = state.denied_active_flags();
+    if !refused.is_empty() {
+        widgets::banner(
+            ui,
+            feedback::Tone::Danger,
+            "Roblox refused some of these flags",
+            &format!(
+                "The last client that started read the file and then ignored {}. Roblox only accepts a short list of local overrides and rejects the rest on its own side, so nothing RustBlox writes can turn these on.",
+                refused.join(", ")
+            ),
+        );
+        ui.add_space(theme.metrics.gap_lg);
+    }
+
     presets(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
 
@@ -88,16 +103,31 @@ fn presets(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Opti
 
                 for preset in &flags::PRESETS {
                     let on = state.flags.preset_applied(preset);
+                    let refused = preset.pairs.iter().any(|(key, _)| {
+                        state
+                            .denied_flags
+                            .iter()
+                            .any(|denied| denied.eq_ignore_ascii_case(key))
+                    });
                     let response = widgets::Button::new(preset.name)
                         .icon(if on { Icon::Check } else { Icon::Plus })
-                        .tone(if on {
+                        .tone(if refused && on {
+                            widgets::Tone::Danger
+                        } else if on {
                             widgets::Tone::Primary
                         } else {
                             widgets::Tone::Neutral
                         })
                         .size(widgets::Size::Small)
                         .show(ui)
-                        .on_hover_text(preset.detail);
+                        .on_hover_text(if refused {
+                            format!(
+                                "{} Roblox refused this one on the last launch.",
+                                preset.detail
+                            )
+                        } else {
+                            preset.detail.to_owned()
+                        });
 
                     if response.clicked() {
                         *action = Some(Action::TogglePreset(preset.name));
@@ -304,6 +334,7 @@ fn editor(
     ui_state: &mut UiState,
     action: &mut Option<Action>,
 ) {
+    let refused = state.denied_active_flags();
     let filter = ui_state.flag_filter.to_lowercase();
     let entries = state.flags.entries.clone();
     let visible: Vec<_> = entries
@@ -385,7 +416,9 @@ fn editor(
                                         theme.palette.text_faint
                                     }),
                             );
-                            if flags::looks_unusual(&entry.key) {
+                            if refused.iter().any(|key| key == &entry.key) {
+                                widgets::badge(ui, "refused by Roblox", feedback::Tone::Danger);
+                            } else if flags::looks_unusual(&entry.key) {
                                 widgets::badge(ui, "unknown prefix", feedback::Tone::Warning);
                             }
                         });

@@ -29,6 +29,7 @@ const IDLE_POLL: Duration = Duration::from_millis(2500);
 const BUSY_POLL: Duration = Duration::from_millis(900);
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(600);
 const THEME_PROBE: Duration = Duration::from_millis(900);
+const DENIED_PROBE: Duration = Duration::from_secs(5);
 
 pub struct AppState {
     pub store: Store,
@@ -39,6 +40,7 @@ pub struct AppState {
     pub latest_note: Option<String>,
     pub roblox: RobloxStatus,
     pub flags: FlagProfile,
+    pub denied_flags: Vec<String>,
     pub session: LaunchSession,
     pub install: InstallSession,
     pub flow: LaunchFlow,
@@ -54,6 +56,7 @@ pub struct AppState {
 
     settings_dirty_at: Option<Instant>,
     flags_dirty_at: Option<Instant>,
+    denied_checked_at: Option<Instant>,
     state_dirty: bool,
     last_poll: Instant,
     last_theme_probe: Instant,
@@ -110,6 +113,7 @@ impl AppState {
             latest_note: None,
             roblox: RobloxStatus::default(),
             flags,
+            denied_flags: Vec::new(),
             session: LaunchSession::default(),
             install: InstallSession::default(),
             flow: LaunchFlow::default(),
@@ -124,6 +128,7 @@ impl AppState {
             close_requested: false,
             settings_dirty_at: None,
             flags_dirty_at: None,
+            denied_checked_at: None,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
             last_theme_probe: Instant::now() - THEME_PROBE,
@@ -852,6 +857,31 @@ impl AppState {
         if let Err(err) = self.store.save_state(&self.persisted) {
             log_error!("state could not be saved: {err}");
         }
+    }
+
+    pub fn refresh_denied_flags(&mut self) {
+        if self
+            .denied_checked_at
+            .is_some_and(|at| at.elapsed() < DENIED_PROBE)
+        {
+            return;
+        }
+        self.denied_checked_at = Some(Instant::now());
+        self.denied_flags = flags::client_log_dir()
+            .map(|dir| flags::denied_by_client(&dir))
+            .unwrap_or_default();
+    }
+
+    pub fn denied_active_flags(&self) -> Vec<String> {
+        self.flags
+            .active()
+            .map(|entry| entry.key.clone())
+            .filter(|key| {
+                self.denied_flags
+                    .iter()
+                    .any(|denied| denied.eq_ignore_ascii_case(key))
+            })
+            .collect()
     }
 
     pub fn mark_flags_dirty(&mut self) {

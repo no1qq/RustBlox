@@ -281,6 +281,69 @@ pub fn save_profile(dir: &Path, profile: &FlagProfile) -> Result<()> {
 
 pub const BACKUPS_KEPT: usize = 10;
 
+const DENIED_MARKER: &str = "Denied local configuration for: ";
+const LOG_SCAN_BYTES: usize = 128 * 1024;
+
+pub fn client_log_dir() -> Option<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA")?;
+    Some(PathBuf::from(local).join("Roblox").join("logs"))
+}
+
+pub fn denied_by_client(log_dir: &Path) -> Vec<String> {
+    let Some(log) = newest_log(log_dir) else {
+        return Vec::new();
+    };
+    denied_in(&head_of(&log))
+}
+
+fn newest_log(dir: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("log"))
+        })
+        .filter_map(|entry| {
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, entry.path()))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
+fn head_of(path: &Path) -> String {
+    use std::io::Read;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    let mut buffer = Vec::new();
+    if file
+        .by_ref()
+        .take(LOG_SCAN_BYTES as u64)
+        .read_to_end(&mut buffer)
+        .is_err()
+    {
+        return String::new();
+    }
+    String::from_utf8_lossy(&buffer).into_owned()
+}
+
+fn denied_in(log: &str) -> Vec<String> {
+    let mut names: Vec<String> = log
+        .lines()
+        .filter_map(|line| line.split(DENIED_MARKER).nth(1))
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApplyReport {
     pub written: PathBuf,
@@ -520,6 +583,30 @@ mod tests {
                 assert!(!looks_unusual(key), "{key} has an unfamiliar prefix");
             }
         }
+    }
+
+    #[test]
+    fn the_client_log_names_what_it_refused() {
+        let log = concat!(
+            "2026-08-21T04:06:06.533Z,0930,6,Warning [FLog::FlagFetchingStarterModule] Successfully loaded flags\n",
+            "2026-08-21T04:06:06.536Z,0930,6,Warning [FLog::FlagFetchingStarterModule] Denied local configuration for: FFlagDebugDisplayFPS\n",
+            "2026-08-21T04:06:06.536Z,0930,6,Warning [FLog::FlagFetchingStarterModule] Denied local configuration for: DFIntTaskSchedulerTargetFps\n",
+            "2026-08-21T04:06:06.536Z,0930,6,Warning [FLog::FlagFetchingStarterModule] Denied local configuration for: FFlagDebugDisplayFPS\n",
+        );
+
+        assert_eq!(
+            denied_in(log),
+            vec![
+                "DFIntTaskSchedulerTargetFps".to_string(),
+                "FFlagDebugDisplayFPS".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_log_without_refusals_names_nothing() {
+        assert!(denied_in("Successfully loaded flags\n").is_empty());
+        assert!(denied_in("").is_empty());
     }
 
     #[test]
