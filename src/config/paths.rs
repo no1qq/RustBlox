@@ -61,6 +61,14 @@ impl Paths {
         self.data.join("backups")
     }
 
+    pub fn mods_dir(&self) -> PathBuf {
+        self.data.join("mods")
+    }
+
+    pub fn mod_originals_dir(&self) -> PathBuf {
+        self.data.join("mod-originals")
+    }
+
     pub fn versions_dir(&self) -> PathBuf {
         self.data.join("Versions")
     }

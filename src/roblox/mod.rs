@@ -7,6 +7,7 @@ pub mod gamesettings;
 pub mod install;
 pub mod installer;
 pub mod launch;
+pub mod mods;
 pub mod process;
 pub mod uri;
 pub mod versions;

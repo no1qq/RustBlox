@@ -80,6 +80,8 @@ form the registry entry uses when RustBlox is registered as the link handler.
 | Settings | `%APPDATA%\RustBlox\config\settings.json` |
 | State, logs, backups | `%LOCALAPPDATA%\RustBlox\data\` |
 | Flag profile | `%LOCALAPPDATA%\RustBlox\data\flag-profiles\default.json` |
+| Mods | `%LOCALAPPDATA%\RustBlox\data\mods\` |
+| Originals of modded files | `%LOCALAPPDATA%\RustBlox\data\mod-originals\` |
 | Roblox copies it installs | `%LOCALAPPDATA%\RustBlox\data\Versions\version-<id>\` |
 | Downloaded packages | `%LOCALAPPDATA%\RustBlox\data\Downloads\version-<id>\` |
 
@@ -213,6 +215,26 @@ well is a choice on that screen, so keeping it means a reinstall starts where yo
 off. Any registered link handler is put back first, and the executable removes itself
 last. A Roblox install that RustBlox did not create is never touched.
 
+## Mods
+
+A mod is a file that replaces one of the client's own. The mods folder mirrors the
+client, so a file at `content\fonts\Arimo-Regular.ttf` inside it replaces exactly that
+file in RustBlox's copy of Roblox. Nothing else is touched.
+
+- Before a file is replaced, the original is copied into `mod-originals` next to it.
+  Take the mod out of the folder and the original goes straight back. Turn mods off and
+  every original goes back at once.
+- Mods are laid on again before every launch, because a Roblox update replaces the whole
+  version folder.
+- A mod that adds a file Roblox never shipped is deleted again when it leaves the folder,
+  rather than being left behind.
+- The font tool copies a `.ttf` or `.otf` of your choosing into the mods folder and
+  rewrites every font family the client ships to point at it, which is what makes Roblox
+  draw its whole interface in that font. Clearing it puts the original families back.
+
+RustBlox ships no mod content of its own. It gives you the folder, the safety net and
+the font tool; what goes in the folder is yours.
+
 ## Game settings
 
 Roblox keeps its own settings in `%LOCALAPPDATA%\Roblox\GlobalBasicSettings_13.xml`,
@@ -237,8 +259,9 @@ the flags that used to do those two jobs are refused by the client now.
 
 Everything needed to install and play Roblox is on the Home, Game, Settings and About
 pages.
-Turning on **Advanced options** in Settings adds the Flags page, the Installation page
-with its download controls and launch link handling, and the Advanced settings tab.
+Turning on **Advanced options** in Settings adds the Flags page, the Mods page, the
+Installation page with its download controls and launch link handling, and the Advanced
+settings tab.
 Turning it back off hides them again without changing anything they configured.
 
 ## Light and dark
@@ -284,7 +307,7 @@ src/
     windows/      process enumeration, file version info, shell, registry
   selfupdate.rs   GitHub releases, download and in place swap
   roblox/         detection, deployment, installer, version housekeeping, launch
-                  pipeline, URIs, flags, Roblox's own game settings
+                  pipeline, URIs, flags, Roblox's own game settings, mods
   uninstall.rs    removing RustBlox and the data it created
   ui/             theme, icons, app icon, widgets, pages, chrome, launcher, splash
   util/           filesystem helpers, formatting, version compare, logging

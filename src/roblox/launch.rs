@@ -9,6 +9,7 @@ use crate::platform;
 use super::detect;
 use super::flags::{self, FlagProfile};
 use super::gamesettings::{self, Change};
+use super::mods;
 use super::process;
 use super::uri;
 
@@ -168,6 +169,13 @@ pub struct GamePlan {
     pub lock: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModPlan {
+    pub root: PathBuf,
+    pub originals: PathBuf,
+    pub enabled: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct LaunchPlan {
     pub target: LaunchTarget,
@@ -175,6 +183,7 @@ pub struct LaunchPlan {
     pub verify: bool,
     pub flag_profile: Option<FlagProfile>,
     pub game: Option<GamePlan>,
+    pub mods: Option<ModPlan>,
     pub backup_dir: PathBuf,
     pub extra_arguments: String,
     pub timeout: Duration,
@@ -332,6 +341,22 @@ fn execute(
         match gamesettings::apply(&game.path, &game.changes, game.lock, &plan.backup_dir) {
             Ok(report) => notes.push(report.summary()),
             Err(err) => notes.push(format!("game settings were left alone: {err}")),
+        }
+    }
+    if let Some(plan) = &plan.mods {
+        let originals = plan.originals.join(&install.folder_id);
+        mods::forget_other_versions(&plan.originals, &install.folder_id);
+        let outcome = if plan.enabled {
+            mods::apply(&install.version_dir, &plan.root, &originals).map(|report| report.summary())
+        } else {
+            mods::restore_all(&install.version_dir, &originals).map(|restored| match restored {
+                0 => "no mods to remove".to_owned(),
+                count => format!("put {count} original files back"),
+            })
+        };
+        match outcome {
+            Ok(note) => notes.push(note),
+            Err(err) => notes.push(format!("mods were left alone: {err}")),
         }
     }
     done(emit, StepId::Configure, notes.join(", "));

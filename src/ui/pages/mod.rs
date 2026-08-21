@@ -3,6 +3,7 @@ mod flags;
 mod game;
 mod home;
 mod installation;
+mod mods;
 mod settings;
 
 use crate::app::AppState;
@@ -13,6 +14,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     match ui_state.page {
         Page::Home => home::render(ui, state, ui_state),
         Page::Game => game::render(ui, state),
+        Page::Mods => mods::render(ui, state),
         Page::Installation => installation::render(ui, state, ui_state),
         Page::Flags => flags::render(ui, state, ui_state),
         Page::Settings => settings::render(ui, state, ui_state),

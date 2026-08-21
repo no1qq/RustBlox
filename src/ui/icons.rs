@@ -6,6 +6,7 @@ pub enum Icon {
     Rocket,
     Sliders,
     Gauge,
+    Layers,
     Flag,
     Info,
     Folder,
@@ -104,6 +105,24 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
                 grid.at(10.4, 19.4),
                 grid.at(12.0, 21.6),
                 grid.at(13.6, 19.4),
+            ]);
+        }
+        Icon::Layers => {
+            closed(vec![
+                grid.at(12.0, 3.4),
+                grid.at(20.6, 8.0),
+                grid.at(12.0, 12.6),
+                grid.at(3.4, 8.0),
+            ]);
+            path(vec![
+                grid.at(3.4, 12.0),
+                grid.at(12.0, 16.6),
+                grid.at(20.6, 12.0),
+            ]);
+            path(vec![
+                grid.at(3.4, 16.0),
+                grid.at(12.0, 20.6),
+                grid.at(20.6, 16.0),
             ]);
         }
         Icon::Gauge => {

@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-pub const CURRENT_VERSION: u32 = 4;
+pub const CURRENT_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Migration {
@@ -44,6 +44,7 @@ fn steps_for(version: u32) -> Option<(&'static str, Step)> {
             "added the Roblox game settings section, left switched off",
             step_v3_to_v4,
         )),
+        4 => Some(("added the mods section, left switched off", step_v4_to_v5)),
         _ => None,
     }
 }
@@ -88,6 +89,15 @@ fn step_v3_to_v4(root: &mut Map<String, Value>) {
     if let Some(game) = game.as_object_mut() {
         game.entry("manage").or_insert(Value::Bool(false));
         game.entry("lock").or_insert(Value::Bool(false));
+    }
+}
+
+fn step_v4_to_v5(root: &mut Map<String, Value>) {
+    let mods = root
+        .entry("mods")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(mods) = mods.as_object_mut() {
+        mods.entry("enabled").or_insert(Value::Bool(false));
     }
 }
 
@@ -228,6 +238,15 @@ mod tests {
         assert_eq!(value["game"]["lock"], json!(false));
         assert_eq!(value["advanced"]["channel"], json!("zflag"));
         assert!(outcome.note().unwrap().contains("game settings"));
+    }
+
+    #[test]
+    fn the_mods_section_arrives_switched_off() {
+        let mut value = json!({"version": 4});
+        let outcome = migrate(&mut value);
+
+        assert_eq!(value["mods"]["enabled"], json!(false));
+        assert!(outcome.note().unwrap().contains("mods"));
     }
 
     #[test]

@@ -12,7 +12,8 @@ use crate::roblox::detect::{Detection, ScanOptions};
 use crate::roblox::flags::{self, FlagProfile};
 use crate::roblox::gamesettings::{self, Snapshot};
 use crate::roblox::installer::InstallPlan;
-use crate::roblox::launch::{GamePlan, LaunchPlan, LaunchTarget};
+use crate::roblox::launch::{GamePlan, LaunchPlan, LaunchTarget, ModPlan};
+use crate::roblox::mods;
 use crate::roblox::process::RobloxStatus;
 use crate::roblox::versions;
 use crate::{log_error, log_info, log_warn};
@@ -43,6 +44,7 @@ pub struct AppState {
     pub flags: FlagProfile,
     pub denied_flags: Vec<String>,
     pub game: Snapshot,
+    pub mods: mods::Inventory,
     pub session: LaunchSession,
     pub install: InstallSession,
     pub flow: LaunchFlow,
@@ -61,6 +63,7 @@ pub struct AppState {
     game_dirty_at: Option<Instant>,
     denied_checked_at: Option<Instant>,
     game_checked_at: Option<Instant>,
+    mods_checked_at: Option<Instant>,
     state_dirty: bool,
     last_poll: Instant,
     last_theme_probe: Instant,
@@ -119,6 +122,7 @@ impl AppState {
             flags,
             denied_flags: Vec::new(),
             game: Snapshot::default(),
+            mods: mods::Inventory::default(),
             session: LaunchSession::default(),
             install: InstallSession::default(),
             flow: LaunchFlow::default(),
@@ -136,6 +140,7 @@ impl AppState {
             game_dirty_at: None,
             denied_checked_at: None,
             game_checked_at: None,
+            mods_checked_at: None,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
             last_theme_probe: Instant::now() - THEME_PROBE,
@@ -813,6 +818,7 @@ impl AppState {
                 None
             },
             game: self.game_plan(),
+            mods: Some(self.mod_plan()),
             backup_dir: self.store.paths().backup_dir(),
             extra_arguments: self.settings.advanced.extra_player_arguments.clone(),
             timeout: Duration::from_secs(self.settings.launch.launch_timeout_secs),
@@ -883,6 +889,120 @@ impl AppState {
             changes: self.settings.game.changes(),
             lock: self.settings.game.lock,
         })
+    }
+
+    pub fn mod_plan(&self) -> ModPlan {
+        ModPlan {
+            root: self.store.paths().mods_dir(),
+            originals: self.store.paths().mod_originals_dir(),
+            enabled: self.settings.mods.enabled,
+        }
+    }
+
+    pub fn refresh_mods(&mut self, force: bool) {
+        if !force
+            && self
+                .mods_checked_at
+                .is_some_and(|at| at.elapsed() < DENIED_PROBE)
+        {
+            return;
+        }
+        self.mods_checked_at = Some(Instant::now());
+        self.mods = mods::scan(&self.store.paths().mods_dir());
+    }
+
+    pub fn apply_mods_now(&mut self) {
+        let plan = self.mod_plan();
+        let Some(install) = self.detection.active().cloned() else {
+            self.toasts
+                .error("No Roblox to change", Some("Install it first.".into()));
+            return;
+        };
+
+        if let Err(err) = crate::util::fs::ensure_dir(&plan.root) {
+            log_error!("the mods folder could not be created: {err}");
+            self.toasts.error(
+                "The mods folder could not be created",
+                Some(err.to_string()),
+            );
+            return;
+        }
+
+        let originals = plan.originals.join(&install.folder_id);
+        mods::forget_other_versions(&plan.originals, &install.folder_id);
+
+        let outcome = if plan.enabled {
+            mods::apply(&install.version_dir, &plan.root, &originals)
+        } else {
+            mods::restore_all(&install.version_dir, &originals).map(|restored| mods::Report {
+                restored,
+                ..mods::Report::default()
+            })
+        };
+
+        match outcome {
+            Ok(report) => {
+                log_info!("mods: {}", report.summary());
+                for refused in &report.refused {
+                    log_warn!("mod file refused: {refused}");
+                }
+                self.toasts.success(capitalise(&report.summary()));
+            }
+            Err(err) => {
+                log_error!("mods could not be applied: {err}");
+                self.toasts
+                    .error("Mods could not be applied", Some(err.to_string()));
+            }
+        }
+
+        self.refresh_mods(true);
+    }
+
+    pub fn choose_font(&mut self) {
+        let Some(install) = self.detection.active().cloned() else {
+            self.toasts
+                .error("No Roblox to read from", Some("Install it first.".into()));
+            return;
+        };
+        let Some(source) = rfd::FileDialog::new()
+            .set_title("Choose a font for Roblox")
+            .add_filter("Fonts", &["ttf", "otf"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        match mods::install_font(&self.store.paths().mods_dir(), &install, &source) {
+            Ok(count) => {
+                log_info!("rewrote {count} font families to use {}", source.display());
+                self.toasts
+                    .success(format!("{count} font families now use that font"));
+                self.settings.mods.enabled = true;
+                self.mark_settings_dirty();
+                self.flush_settings();
+                self.apply_mods_now();
+            }
+            Err(err) => {
+                log_error!("the font could not be installed: {err}");
+                self.toasts
+                    .error("That font could not be used", Some(err.to_string()));
+                self.refresh_mods(true);
+            }
+        }
+    }
+
+    pub fn clear_font(&mut self) {
+        match mods::remove_font(&self.store.paths().mods_dir()) {
+            Ok(()) => {
+                self.toasts.success("Roblox goes back to its own fonts");
+                self.apply_mods_now();
+            }
+            Err(err) => {
+                log_error!("the font could not be removed: {err}");
+                self.toasts
+                    .error("The font could not be removed", Some(err.to_string()));
+            }
+        }
     }
 
     pub fn unlock_game_settings(&mut self) {
@@ -1185,5 +1305,13 @@ impl AppState {
             self.flush_game_settings();
         }
         Ok(())
+    }
+}
+
+fn capitalise(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }

@@ -14,6 +14,7 @@ pub struct Settings {
     pub advanced_mode: bool,
     pub launch: LaunchSettings,
     pub game: GameSettings,
+    pub mods: ModSettings,
     pub appearance: AppearanceSettings,
     pub advanced: AdvancedSettings,
 }
@@ -25,6 +26,7 @@ impl Default for Settings {
             advanced_mode: false,
             launch: LaunchSettings::default(),
             game: GameSettings::default(),
+            mods: ModSettings::default(),
             appearance: AppearanceSettings::default(),
             advanced: AdvancedSettings::default(),
         }
@@ -247,6 +249,12 @@ impl GameSettings {
 
         notes
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct ModSettings {
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
