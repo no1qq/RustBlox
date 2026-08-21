@@ -58,7 +58,7 @@ fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
         widgets::setting_row(
             ui,
             "Advanced options",
-            "Shows the Flags page, the Advanced tab and the extra install controls.",
+            "Shows the Flags, Mods, Shortcuts and Installation pages, the Advanced tab and the extra launch settings.",
             |ui| {
                 changed |= widgets::toggle(ui, &mut state.settings.advanced_mode).changed();
             },
