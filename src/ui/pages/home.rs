@@ -7,19 +7,29 @@ use crate::roblox::uri;
 use crate::util::format;
 
 use crate::ui::chrome::request_launch;
-use crate::ui::icons::Icon;
+use crate::ui::icons::{self, Icon};
 use crate::ui::theme::{self, Theme};
 use crate::ui::widgets::{self, feedback};
-use crate::ui::{Page, UiState};
+use crate::ui::{appicon, Page, UiState};
+
+enum Alert {
+    InstallRoblox,
+    OpenFlags,
+    OpenAbout,
+    OpenGame,
+    Unlock,
+}
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
     let installed = state.detection.active().is_some();
+    state.refresh_denied_flags();
+    state.refresh_game_snapshot(false);
 
     widgets::page_header(
         ui,
         "Home",
-        "Launch Roblox and pick up where you left off.",
+        "Everything RustBlox knows about your Roblox, in one place.",
         |_| {},
     );
 
@@ -29,6 +39,9 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     }
 
     hero(ui, &theme, state, ui_state);
+    ui.add_space(theme.metrics.gap_lg);
+    alerts(ui, &theme, state, ui_state);
+    glance(ui, &theme, state, ui_state);
     ui.add_space(theme.metrics.gap_lg);
     quick_launch(ui, &theme, state, ui_state);
     ui.add_space(theme.metrics.gap_lg);
@@ -106,30 +119,50 @@ fn hero(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
     let running = state.roblox.player_running();
     let can_launch = state.can_launch();
     let target = state.default_target();
+    let version = state
+        .detection
+        .active()
+        .map(|install| install.display_version().to_owned())
+        .unwrap_or_default();
+    let update = state
+        .update_available()
+        .map(|deployment| deployment.version.clone());
     let mut launch = false;
 
     widgets::card(ui, |ui| {
         ui.horizontal(|ui| {
-            let (tone, label) = if running {
-                (feedback::Tone::Success, state.roblox.summary())
-            } else {
-                (feedback::Tone::Neutral, "Client idle".to_string())
-            };
-            widgets::status_pill(ui, &label, tone, running);
-        });
+            let (rect, _) = ui.allocate_exact_size(Vec2::splat(46.0), Sense::hover());
+            appicon::paint(ui, rect, theme.radius_md());
+            ui.add_space(theme.metrics.gap_md);
 
-        ui.add_space(theme.metrics.gap_md);
-        ui.label(
-            egui::RichText::new(target.headline())
-                .font(theme::strong(theme::size::DISPLAY))
-                .color(palette.text),
-        );
-        ui.add_space(3.0);
-        ui.label(
-            egui::RichText::new(target.detail())
-                .font(theme::text_style(theme::size::SMALL))
-                .color(palette.text_muted),
-        );
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    let (tone, label) = if running {
+                        (feedback::Tone::Success, state.roblox.summary())
+                    } else {
+                        (feedback::Tone::Neutral, "Client idle".to_string())
+                    };
+                    widgets::status_pill(ui, &label, tone, running);
+                    widgets::badge(ui, &version, feedback::Tone::Neutral);
+                    if update.is_some() {
+                        widgets::badge(ui, "update waiting", feedback::Tone::Accent);
+                    }
+                });
+
+                ui.add_space(theme.metrics.gap_sm);
+                ui.label(
+                    egui::RichText::new(target.headline())
+                        .font(theme::strong(theme::size::DISPLAY))
+                        .color(palette.text),
+                );
+                ui.add_space(3.0);
+                ui.label(
+                    egui::RichText::new(target.detail())
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(palette.text_muted),
+                );
+            });
+        });
 
         ui.add_space(theme.metrics.gap_lg);
         ui.horizontal(|ui| {
@@ -142,9 +175,12 @@ fn hero(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
-                    egui::RichText::new("Checks for a Roblox update first.")
-                        .font(theme::text_style(theme::size::MICRO))
-                        .color(palette.text_faint),
+                    egui::RichText::new(match &update {
+                        Some(version) => format!("Roblox {version} will be installed first."),
+                        None => "Checks for a Roblox update first.".to_owned(),
+                    })
+                    .font(theme::text_style(theme::size::MICRO))
+                    .color(palette.text_faint),
                 );
             });
         });
@@ -152,6 +188,248 @@ fn hero(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
 
     if launch {
         request_launch(state, ui_state, target);
+    }
+}
+
+fn alerts(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
+    let advanced = state.settings.advanced_mode;
+    let update = state
+        .update_available()
+        .map(|deployment| deployment.version.clone());
+    let app_update = state
+        .app_update
+        .offered()
+        .map(|release| release.version.clone());
+    let refused = state.denied_active_flags();
+    let stray_lock = state.game.locked && !state.settings.game.manage;
+    let unmanaged = !state.settings.game.manage && !state.persisted.seen_game_page;
+
+    let nothing = update.is_none()
+        && app_update.is_none()
+        && (refused.is_empty() || !advanced)
+        && !stray_lock
+        && !unmanaged;
+    if nothing {
+        return;
+    }
+
+    let mut action = None;
+
+    widgets::section(
+        ui,
+        "Worth a look",
+        Some("Only what RustBlox can actually do something about."),
+        |ui| {
+            let mut first = true;
+            let gap = |ui: &mut egui::Ui, first: &mut bool| {
+                if *first {
+                    *first = false;
+                } else {
+                    ui.add_space(theme.metrics.gap_sm);
+                }
+            };
+
+            if let Some(version) = &update {
+                gap(ui, &mut first);
+                if alert(
+                    ui,
+                    theme,
+                    feedback::Tone::Accent,
+                    Icon::Package,
+                    "Roblox has an update",
+                    &format!(
+                        "Version {version} is out. Launching installs it first, or take it now."
+                    ),
+                    "Install it",
+                ) {
+                    action = Some(Alert::InstallRoblox);
+                }
+            }
+
+            if !refused.is_empty() && advanced {
+                gap(ui, &mut first);
+                if alert(
+                    ui,
+                    theme,
+                    feedback::Tone::Danger,
+                    Icon::Flag,
+                    "The client refused some flags",
+                    &format!(
+                        "{} came back refused on the last launch, so they are doing nothing.",
+                        refused.join(", ")
+                    ),
+                    "Open Flags",
+                ) {
+                    action = Some(Alert::OpenFlags);
+                }
+            }
+
+            if stray_lock {
+                gap(ui, &mut first);
+                if alert(
+                    ui,
+                    theme,
+                    feedback::Tone::Warning,
+                    Icon::Warning,
+                    "Roblox cannot save its own settings",
+                    "Its settings file is read only and RustBlox is not managing it, so anything you change in game is forgotten.",
+                    "Unlock it",
+                ) {
+                    action = Some(Alert::Unlock);
+                }
+            } else if unmanaged {
+                gap(ui, &mut first);
+                if alert(
+                    ui,
+                    theme,
+                    feedback::Tone::Info,
+                    Icon::Gauge,
+                    "The frame rate limit is Roblox's own",
+                    "RustBlox can set the frame rate, the graphics quality and the stats overlay for you before each launch.",
+                    "Open Game",
+                ) {
+                    action = Some(Alert::OpenGame);
+                }
+            }
+
+            if let Some(version) = &app_update {
+                gap(ui, &mut first);
+                if alert(
+                    ui,
+                    theme,
+                    feedback::Tone::Info,
+                    Icon::Refresh,
+                    "RustBlox has an update",
+                    &format!(
+                        "Version {version} is on GitHub. Nothing is downloaded until you say so."
+                    ),
+                    "See it",
+                ) {
+                    action = Some(Alert::OpenAbout);
+                }
+            }
+        },
+    );
+    ui.add_space(theme.metrics.gap_lg);
+
+    match action {
+        Some(Alert::InstallRoblox) => state.install_roblox(false),
+        Some(Alert::OpenFlags) => ui_state.page = Page::Flags,
+        Some(Alert::OpenAbout) => ui_state.page = Page::About,
+        Some(Alert::OpenGame) => ui_state.page = Page::Game,
+        Some(Alert::Unlock) => state.unlock_game_settings(),
+        None => {}
+    }
+}
+
+fn alert(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    tone: feedback::Tone,
+    icon: Icon,
+    title: &str,
+    body: &str,
+    button: &str,
+) -> bool {
+    let mut clicked = false;
+
+    widgets::nested(ui, |ui| {
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
+            icons::draw(ui.painter(), icon, rect, tone.color(theme), 1.7);
+            ui.add_space(theme.metrics.gap_xs);
+
+            ui.vertical(|ui| {
+                ui.set_width((ui.available_width() - 130.0).max(80.0));
+                ui.label(
+                    egui::RichText::new(title)
+                        .font(theme::medium(theme::size::BODY))
+                        .color(theme.palette.text),
+                );
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(body)
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(theme.palette.text_muted),
+                );
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                clicked = widgets::Button::new(button)
+                    .size(widgets::Size::Small)
+                    .show(ui)
+                    .clicked();
+            });
+        });
+    });
+
+    clicked
+}
+
+fn glance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
+    let advanced = state.settings.advanced_mode;
+    let version = state
+        .detection
+        .active()
+        .map(|install| install.display_version().to_owned())
+        .unwrap_or_else(|| "none".into());
+    let flags = state.flags.active_count();
+    let managed = state.settings.game.changes().len();
+    let mut open_installation = false;
+
+    widgets::section(
+        ui,
+        "At a glance",
+        Some("What RustBlox has on disk and what it is writing."),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_xl;
+                widgets::stat(ui, "Roblox", &version, feedback::Tone::Accent);
+                widgets::stat(
+                    ui,
+                    "Launches",
+                    &state.persisted.launch_count.to_string(),
+                    feedback::Tone::Neutral,
+                );
+                widgets::stat(
+                    ui,
+                    "Game settings",
+                    &managed.to_string(),
+                    if managed > 0 {
+                        feedback::Tone::Success
+                    } else {
+                        feedback::Tone::Neutral
+                    },
+                );
+                if advanced {
+                    widgets::stat(
+                        ui,
+                        "Flags",
+                        &flags.to_string(),
+                        if flags > 0 {
+                            feedback::Tone::Success
+                        } else {
+                            feedback::Tone::Neutral
+                        },
+                    );
+                }
+
+                if advanced {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        open_installation = widgets::Button::new("Installation")
+                            .icon(Icon::ChevronRight)
+                            .tone(widgets::Tone::Ghost)
+                            .size(widgets::Size::Small)
+                            .show(ui)
+                            .clicked();
+                    });
+                }
+            });
+        },
+    );
+
+    if open_installation {
+        ui_state.page = Page::Installation;
     }
 }
 
@@ -183,7 +461,7 @@ fn quick_launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state
                         ui.horizontal(|ui| {
                             let (icon_rect, _) =
                                 ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-                            crate::ui::icons::draw(
+                            icons::draw(
                                 ui.painter(),
                                 Icon::Play,
                                 icon_rect,
@@ -309,7 +587,7 @@ fn quick_launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state
 fn activity(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
     let mut open_folder = None;
 
-    widgets::section(ui, "Activity", None, |ui| {
+    widgets::section(ui, "Last launch", None, |ui| {
         match &state.persisted.last_launch {
             Some(record) => {
                 let tone = match record.outcome {
@@ -353,23 +631,8 @@ fn activity(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
             }
         }
 
-        ui.add_space(theme.metrics.gap_lg);
-
+        ui.add_space(theme.metrics.gap_md);
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.metrics.gap_xl;
-            widgets::stat(
-                ui,
-                "Total launches",
-                &state.persisted.launch_count.to_string(),
-                feedback::Tone::Accent,
-            );
-            widgets::stat(
-                ui,
-                "Saved places",
-                &state.settings.launch.quick_targets.len().to_string(),
-                feedback::Tone::Neutral,
-            );
-
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if widgets::Button::new("Open data folder")
                     .icon(Icon::Folder)

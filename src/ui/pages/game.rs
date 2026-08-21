@@ -12,6 +12,11 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
     let theme = Theme::get(ui.ctx());
     state.refresh_game_snapshot(false);
 
+    if !state.persisted.seen_game_page {
+        state.persisted.seen_game_page = true;
+        state.mark_state_dirty();
+    }
+
     let mut refresh = false;
     let mut open_folder = None;
 

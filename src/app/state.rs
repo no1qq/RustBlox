@@ -885,6 +885,27 @@ impl AppState {
         })
     }
 
+    pub fn unlock_game_settings(&mut self) {
+        let Some(path) = gamesettings::settings_file() else {
+            return;
+        };
+        match gamesettings::unlock(&path) {
+            Ok(true) => {
+                self.settings.game.lock = false;
+                self.mark_settings_dirty();
+                self.flush_settings();
+                self.toasts.success("Roblox can write its settings again");
+            }
+            Ok(false) => {}
+            Err(err) => {
+                log_error!("the settings file could not be unlocked: {err}");
+                self.toasts
+                    .error("The file could not be unlocked", Some(err.to_string()));
+            }
+        }
+        self.refresh_game_snapshot(true);
+    }
+
     pub fn refresh_game_snapshot(&mut self, force: bool) {
         if !force
             && self

@@ -467,6 +467,7 @@ pub struct State {
     pub last_quick_target: Option<u64>,
     pub window: WindowState,
     pub seen_welcome: bool,
+    pub seen_game_page: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]

@@ -195,8 +195,12 @@ check, the download if there is one, the configuration, and the wait for the cli
 Once the client is running the window closes, and RustBlox with it. A failure leaves
 the window up with the reason, Try again, and Close.
 
-Configure settings opens the full window, which is where installs, quick launch
-entries, appearance and everything else live. The sidebar there collapses to icons
+Configure settings opens the full window. Home there is a dashboard: whether the client
+is running, what pressing Launch would open, the version on disk against the one Roblox
+is publishing, your saved places, and a short list of things worth a look, each with the
+button that deals with it. Nothing appears in that list that RustBlox cannot act on.
+The rest of the window is where installs, quick launch entries, game settings,
+appearance and everything else live. The sidebar there collapses to icons
 with the button above the tabs. `rustblox --settings` opens it directly. Launching
 from that window shows the same progress window, and once the client is running it
 closes too, exactly as it does from the launcher. A failed launch comes back to the
