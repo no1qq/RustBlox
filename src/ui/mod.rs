@@ -5,6 +5,7 @@ mod install_overlay;
 pub mod launcher;
 pub mod overlay;
 mod pages;
+pub mod splash;
 mod toasts;
 
 pub mod icons;
@@ -38,6 +39,16 @@ impl Page {
         Page::Settings,
         Page::About,
     ];
+
+    const WITHOUT_FLAGS: [Page; 4] = [Page::Home, Page::Installation, Page::Settings, Page::About];
+
+    pub fn visible(advanced: bool) -> &'static [Page] {
+        if advanced {
+            &Self::ALL
+        } else {
+            &Self::WITHOUT_FLAGS
+        }
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -77,6 +88,20 @@ impl SettingsTab {
         SettingsTab::Advanced,
     ];
 
+    const SIMPLE: [SettingsTab; 3] = [
+        SettingsTab::General,
+        SettingsTab::Launch,
+        SettingsTab::Appearance,
+    ];
+
+    pub fn visible(advanced: bool) -> &'static [SettingsTab] {
+        if advanced {
+            &Self::ALL
+        } else {
+            &Self::SIMPLE
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             SettingsTab::General => "General",
@@ -87,22 +112,59 @@ impl SettingsTab {
     }
 }
 
-pub fn starts_in_launcher(command: &CommandKind) -> bool {
-    !matches!(command, CommandKind::WindowOnSettings)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Shell {
     #[default]
     Launcher,
+    Splash,
+    Uninstall,
     Full,
+}
+
+impl Shell {
+    pub fn size(self, window: WindowState) -> egui::Vec2 {
+        match self {
+            Shell::Launcher => egui::vec2(launcher::WIDTH, launcher::HEIGHT),
+            Shell::Splash => egui::vec2(splash::WIDTH, splash::HEIGHT),
+            Shell::Uninstall => egui::vec2(launcher::UNINSTALL_WIDTH, launcher::UNINSTALL_HEIGHT),
+            Shell::Full => egui::vec2(window.width, window.height),
+        }
+    }
+
+    pub fn is_small(self) -> bool {
+        !matches!(self, Shell::Full)
+    }
+}
+
+fn centre_on_screen(ctx: &egui::Context, size: egui::Vec2) {
+    let Some(monitor) = ctx.input(|input| input.viewport().monitor_size) else {
+        return;
+    };
+    if monitor.x <= 1.0 || monitor.y <= 1.0 {
+        return;
+    }
+
+    let position = egui::pos2(
+        ((monitor.x - size.x) / 2.0).max(0.0),
+        ((monitor.y - size.y) / 2.0).max(0.0),
+    );
+    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(position));
+}
+
+pub fn initial_shell(command: &CommandKind) -> Shell {
+    match command {
+        CommandKind::WindowOnSettings => Shell::Full,
+        CommandKind::LaunchNow | CommandKind::Forward(_) => Shell::Splash,
+        _ => Shell::Launcher,
+    }
 }
 
 #[derive(Default)]
 pub struct UiState {
     pub shell: Shell,
+    pub return_shell: Shell,
     pub sidebar_collapsed: bool,
-    pub uninstall: Option<bool>,
+    pub uninstall_settings: bool,
     pub page: Page,
     pub settings_tab: SettingsTab,
     pub quick_input: String,
@@ -141,19 +203,19 @@ impl RustBloxApp {
         theme::install_fonts(&cc.egui_ctx);
         state.attach(cc.egui_ctx.clone());
 
-        let mut ui = UiState::default();
+        let mut ui = UiState {
+            shell: initial_shell(command),
+            ..UiState::default()
+        };
         match command {
-            CommandKind::WindowOnSettings => {
-                ui.shell = Shell::Full;
-                ui.page = Page::Settings;
-            }
+            CommandKind::WindowOnSettings => ui.page = Page::Settings,
             CommandKind::Forward(uri) => {
                 state.forwarding = true;
-                state.launch(LaunchTarget::Forward(uri.clone()));
+                state.start_launch_flow(LaunchTarget::Forward(uri.clone()));
             }
             CommandKind::LaunchNow => {
                 let target = state.default_target();
-                state.launch(target);
+                state.start_launch_flow(target);
             }
             _ => {}
         }
@@ -192,42 +254,41 @@ impl RustBloxApp {
         }
         self.applied_shell = Some(self.ui.shell);
 
-        match self.ui.shell {
-            Shell::Launcher => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
-                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
-                    launcher::WIDTH,
-                    launcher::HEIGHT,
-                )));
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    launcher::WIDTH,
-                    launcher::HEIGHT,
-                )));
-            }
-            Shell::Full => {
-                let window = self.saved_window.sanitised();
-                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
-                    WindowState::MIN_WIDTH,
-                    WindowState::MIN_HEIGHT,
-                )));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    window.width,
-                    window.height,
-                )));
-            }
+        let shell = self.ui.shell;
+        let window = self.saved_window.sanitised();
+        let size = shell.size(window);
+        let minimum = if shell.is_small() {
+            size
+        } else {
+            egui::vec2(WindowState::MIN_WIDTH, WindowState::MIN_HEIGHT)
+        };
+
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(minimum));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(!shell.is_small()));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+        centre_on_screen(ctx, size);
+
+        if !shell.is_small() && window.maximized {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
         }
     }
 
-    fn launcher(&mut self, root: &mut egui::Ui, theme: &Theme) {
+    fn small_window(
+        &mut self,
+        root: &mut egui::Ui,
+        theme: &Theme,
+        title: &str,
+        body: impl FnOnce(&mut egui::Ui, &Theme, &mut AppState, &mut UiState),
+    ) {
         let ctx = &root.ctx().clone();
-        egui::Panel::top("launcher-titlebar")
+        egui::Panel::top("small-titlebar")
             .exact_size(theme.metrics.titlebar_h)
             .resizable(false)
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(theme.palette.sidebar))
             .show(root, |ui| {
-                launcher::title_bar(ui, theme, &mut self.state);
+                launcher::title_bar(ui, theme, title, &mut self.state, &mut self.ui);
             });
 
         egui::CentralPanel::default()
@@ -237,14 +298,17 @@ impl RustBloxApp {
                     .inner_margin(egui::Margin::same(14)),
             )
             .show(root, |ui| {
-                launcher::render(ui, theme, &mut self.state, &mut self.ui);
+                body(ui, theme, &mut self.state, &mut self.ui);
             });
 
-        launcher::uninstall_dialog(ctx, theme, &mut self.state, &mut self.ui);
-        overlay::launch_overlay(ctx, theme, &mut self.state, &mut self.ui);
-        overlay::confirm_dialog(ctx, theme, &mut self.state, &mut self.ui);
-        toasts::render(ctx, theme, &mut self.state);
+        if self.ui.shell != Shell::Splash {
+            overlay::confirm_dialog(ctx, theme, &mut self.state, &mut self.ui);
+            toasts::render(ctx, theme, &mut self.state);
+        }
+        self.pump_viewport(ctx);
+    }
 
+    fn pump_viewport(&mut self, ctx: &egui::Context) {
         if self.state.minimize_requested {
             self.state.minimize_requested = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -311,9 +375,20 @@ impl eframe::App for RustBloxApp {
 
         self.sync_shell(&ctx);
 
-        if self.ui.shell == Shell::Launcher {
-            self.launcher(root, &theme);
-            return;
+        match self.ui.shell {
+            Shell::Launcher => {
+                self.small_window(root, &theme, "RustBlox", launcher::render);
+                return;
+            }
+            Shell::Splash => {
+                self.small_window(root, &theme, "Starting Roblox", splash::render);
+                return;
+            }
+            Shell::Uninstall => {
+                self.small_window(root, &theme, "Uninstall", launcher::uninstall_panel);
+                return;
+            }
+            Shell::Full => {}
         }
 
         chrome::resize_edges(&ctx, &theme);
@@ -327,11 +402,8 @@ impl eframe::App for RustBloxApp {
                 chrome::title_bar(ui, &theme, &mut self.state, &mut self.ui);
             });
 
-        let sidebar_w = if self.ui.sidebar_collapsed {
-            56.0
-        } else {
-            theme.metrics.sidebar_w
-        };
+        let sidebar_w = chrome::sidebar_width(&ctx, &theme, self.ui.sidebar_collapsed);
+        let expansion = chrome::sidebar_expansion(&theme, sidebar_w);
 
         egui::Panel::left("sidebar")
             .exact_size(sidebar_w)
@@ -349,7 +421,7 @@ impl eframe::App for RustBloxApp {
                     }),
             )
             .show(root, |ui| {
-                chrome::sidebar(ui, &theme, &mut self.state, &mut self.ui);
+                chrome::sidebar(ui, &theme, &mut self.state, &mut self.ui, expansion);
             });
 
         egui::CentralPanel::default()
@@ -364,8 +436,8 @@ impl eframe::App for RustBloxApp {
                             Layout::top_down(Align::Min),
                             |ui| {
                                 ui.add_space(pad * 0.9);
-                                let content = (ui.available_width() - pad * 2.0).max(320.0);
-                                ui.horizontal(|ui| {
+                                let content = (ui.available_width() - pad * 2.0).max(1.0);
+                                ui.horizontal_top(|ui| {
                                     ui.add_space(pad);
                                     ui.allocate_ui_with_layout(
                                         egui::vec2(content, 0.0),
@@ -389,19 +461,80 @@ impl eframe::App for RustBloxApp {
         overlay::confirm_dialog(ctx, &theme, &mut self.state, &mut self.ui);
         toasts::render(ctx, &theme, &mut self.state);
 
-        if self.state.minimize_requested {
-            self.state.minimize_requested = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-        }
+        self.pump_viewport(ctx);
+    }
+}
 
-        if self.state.close_requested {
-            self.state.close_requested = false;
-            let _ = self.state.shutdown();
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        if ctx.input(|input| input.viewport().close_requested()) {
-            let _ = self.state.shutdown();
+    #[test]
+    fn the_launcher_is_what_a_bare_start_opens() {
+        assert_eq!(initial_shell(&CommandKind::Window), Shell::Launcher);
+        assert_eq!(
+            initial_shell(&CommandKind::Print(String::new())),
+            Shell::Launcher
+        );
+    }
+
+    #[test]
+    fn settings_opens_the_full_window_directly() {
+        assert_eq!(initial_shell(&CommandKind::WindowOnSettings), Shell::Full);
+    }
+
+    #[test]
+    fn launching_opens_the_splash_rather_than_the_menu() {
+        assert_eq!(initial_shell(&CommandKind::LaunchNow), Shell::Splash);
+        assert_eq!(
+            initial_shell(&CommandKind::Forward("roblox-player:1".into())),
+            Shell::Splash
+        );
+    }
+
+    #[test]
+    fn only_the_full_window_is_resizable() {
+        assert!(Shell::Launcher.is_small());
+        assert!(Shell::Splash.is_small());
+        assert!(Shell::Uninstall.is_small());
+        assert!(!Shell::Full.is_small());
+    }
+
+    #[test]
+    fn the_splash_is_smaller_than_the_menu() {
+        let window = WindowState::default();
+        assert!(Shell::Splash.size(window).x < Shell::Launcher.size(window).x);
+        assert!(Shell::Splash.size(window).y < Shell::Launcher.size(window).y);
+    }
+
+    #[test]
+    fn the_full_window_uses_the_remembered_size() {
+        let window = WindowState {
+            width: 1234.0,
+            height: 800.0,
+            maximized: false,
+        };
+        assert_eq!(Shell::Full.size(window), egui::vec2(1234.0, 800.0));
+    }
+
+    #[test]
+    fn the_uninstall_window_has_room_for_its_buttons() {
+        let window = WindowState::default();
+        assert!(Shell::Uninstall.size(window).y > Shell::Launcher.size(window).y);
+    }
+
+    #[test]
+    fn flags_and_the_advanced_tab_are_hidden_until_asked_for() {
+        assert!(!Page::visible(false).contains(&Page::Flags));
+        assert!(Page::visible(true).contains(&Page::Flags));
+        assert!(!SettingsTab::visible(false).contains(&SettingsTab::Advanced));
+        assert!(SettingsTab::visible(true).contains(&SettingsTab::Advanced));
+    }
+
+    #[test]
+    fn the_simple_view_still_reaches_every_everyday_page() {
+        for page in [Page::Home, Page::Installation, Page::Settings, Page::About] {
+            assert!(Page::visible(false).contains(&page));
         }
     }
 }

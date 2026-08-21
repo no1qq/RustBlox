@@ -28,12 +28,17 @@ enum Action {
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
+    let advanced = state.settings.advanced_mode;
     let mut action = None;
+
+    if state.latest.is_none() && state.latest_note.is_none() {
+        state.check_latest();
+    }
 
     widgets::page_header(
         ui,
         "Installation",
-        "Where the client lives and how launches reach it.",
+        "The copy of Roblox RustBlox keeps for itself.",
         |ui| {
             if widgets::Button::new("Rescan")
                 .icon(Icon::Refresh)
@@ -53,9 +58,9 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
             widgets::card(ui, |ui| {
                 widgets::empty_state(
                     ui,
-                    Icon::Search,
-                    "No installation selected",
-                    "Pick a folder holding RobloxPlayerBeta.exe, or one with a Versions subfolder.",
+                    Icon::Package,
+                    "Roblox is not installed yet",
+                    "Install it below and RustBlox will keep its own copy, separate from anything Roblox installed.",
                     |_| {},
                 );
             });
@@ -64,12 +69,15 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
 
     ui.add_space(theme.metrics.gap_lg);
     managed_install(ui, &theme, state, &mut action);
-    ui.add_space(theme.metrics.gap_lg);
-    all_installs(ui, &theme, state, ui_state, &mut action);
-    ui.add_space(theme.metrics.gap_lg);
-    search_locations(ui, &theme, state, ui_state, &mut action);
-    ui.add_space(theme.metrics.gap_lg);
-    integrations(ui, &theme, state, &mut action);
+
+    if advanced {
+        ui.add_space(theme.metrics.gap_lg);
+        all_installs(ui, &theme, state, ui_state, &mut action);
+        ui.add_space(theme.metrics.gap_lg);
+        search_locations(ui, &theme, state, ui_state, &mut action);
+        ui.add_space(theme.metrics.gap_lg);
+        integrations(ui, &theme, state, &mut action);
+    }
 
     if let Some(action) = action {
         apply(state, action);
@@ -171,8 +179,8 @@ fn managed_install(
             widgets::banner(
                 ui,
                 feedback::Tone::Info,
-                "This does not touch your other copies",
-                "A copy installed by Roblox itself is read, never modified.",
+                "RustBlox only ever uses its own copy",
+                "A Roblox install of its own is never read, launched or modified, so the two never get in each other's way.",
             );
         },
     );
@@ -199,7 +207,7 @@ fn active_card(
     widgets::card(ui, |ui| {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.set_width((ui.available_width() - 200.0).max(240.0));
+                ui.set_width((ui.available_width() - 200.0).max(80.0));
                 ui.horizontal(|ui| {
                     widgets::badge(ui, "Active", feedback::Tone::Accent);
                     widgets::badge(ui, install.source.short(), feedback::Tone::Neutral);
@@ -326,7 +334,7 @@ fn all_installs(
                 widgets::nested(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            ui.set_width((ui.available_width() - 250.0).max(150.0));
+                            ui.set_width((ui.available_width() - 250.0).max(80.0));
                             ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(install.display_version())
@@ -480,8 +488,6 @@ fn search_locations(
             );
 
             ui.add_space(theme.metrics.gap_md);
-            widgets::separator(ui);
-            ui.add_space(theme.metrics.gap_sm);
 
             let label = if ui_state.show_searched_paths {
                 "Hide checked folders"
@@ -575,7 +581,7 @@ fn integrations(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut
                 widgets::nested(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            ui.set_width((ui.available_width() - 190.0).max(180.0));
+                            ui.set_width((ui.available_width() - 190.0).max(80.0));
                             ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(format!("{scheme}:"))

@@ -8,24 +8,25 @@ use crate::ui::theme::{self, Theme};
 use crate::ui::widgets::{self, feedback, Segmented};
 use crate::ui::{SettingsTab, UiState};
 
+const SCALE_STEP: f32 = 0.05;
+
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
+    let advanced = state.settings.advanced_mode;
 
-    widgets::page_header(
-        ui,
-        "Settings",
-        "Everything here takes effect immediately.",
-        |ui| {
-            if state.settings_pending() {
-                widgets::badge(ui, "Saving", feedback::Tone::Accent);
-            }
-        },
-    );
+    widgets::page_header(ui, "Settings", "Every change saves itself.", |ui| {
+        if state.settings_pending() {
+            widgets::badge(ui, "Saving", feedback::Tone::Accent);
+        }
+    });
 
-    let tabs: Vec<(SettingsTab, &str)> = SettingsTab::ALL
+    let tabs: Vec<(SettingsTab, &str)> = SettingsTab::visible(advanced)
         .iter()
         .map(|tab| (*tab, tab.label()))
         .collect();
+    if !tabs.iter().any(|(tab, _)| *tab == ui_state.settings_tab) {
+        ui_state.settings_tab = SettingsTab::General;
+    }
     Segmented::new(&tabs).show(ui, &mut ui_state.settings_tab);
     ui.add_space(theme.metrics.gap_lg);
 
@@ -33,7 +34,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         SettingsTab::General => general(ui, &theme, state),
         SettingsTab::Launch => launch(ui, &theme, state),
         SettingsTab::Appearance => appearance(ui, &theme, state),
-        SettingsTab::Advanced => advanced(ui, &theme, state, ui_state),
+        SettingsTab::Advanced => advanced_tab(ui, &theme, state, ui_state),
     }
 }
 
@@ -43,24 +44,23 @@ fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
     let mut open_data = false;
     let mut reset = false;
 
-    widgets::section(ui, "After a launch", None, |ui| {
+    widgets::section(ui, "How RustBlox behaves", None, |ui| {
         widgets::setting_row(
             ui,
-            "Minimise RustBlox once Roblox is running",
-            "Drops the launcher to the taskbar as soon as the client reports it started.",
+            "Keep Roblox up to date",
+            "Checks for a newer Roblox every time you press Launch and installs it first.",
             |ui| {
-                changed |=
-                    widgets::toggle(ui, &mut state.settings.launch.hide_window_on_launch).changed();
+                changed |= widgets::toggle(ui, &mut state.settings.launch.update_roblox_on_launch)
+                    .changed();
             },
         );
         ui.add_space(theme.metrics.gap_md);
         widgets::setting_row(
             ui,
-            "Close RustBlox once Roblox is running",
-            "Frees the launcher from memory as soon as the client reports it started.",
+            "Advanced options",
+            "Shows the Flags page, the Advanced tab and the extra install controls.",
             |ui| {
-                changed |=
-                    widgets::toggle(ui, &mut state.settings.launch.close_after_launch).changed();
+                changed |= widgets::toggle(ui, &mut state.settings.advanced_mode).changed();
             },
         );
     });
@@ -69,8 +69,8 @@ fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
 
     widgets::section(
         ui,
-        "Stored data",
-        Some("Stored per user unless you pass --portable."),
+        "Where your files live",
+        Some("Per user, unless RustBlox was started with --portable."),
         |ui| {
             widgets::detail_row(
                 ui,
@@ -81,7 +81,7 @@ fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
             ui.add_space(theme.metrics.gap_sm);
             widgets::detail_row(
                 ui,
-                "State and logs",
+                "Roblox, logs and state",
                 &state.store.paths().data_dir().display().to_string(),
                 true,
             );
@@ -131,11 +131,13 @@ fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
 
 fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
     let mut changed = false;
+    let advanced = state.settings.advanced_mode;
+    let count = state.settings.launch.quick_targets.len();
 
     widgets::section(
         ui,
-        "Startup",
-        Some("What the Launch button does when no specific place is chosen."),
+        "What Launch opens",
+        Some("Used by the launcher window and by --launch."),
         |ui| {
             let options: Vec<(StartupTarget, &str)> = StartupTarget::ALL
                 .iter()
@@ -152,67 +154,86 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
                         .changed();
                 },
             );
-        },
-    );
 
-    ui.add_space(theme.metrics.gap_lg);
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
+                "Ask before launching",
+                "Shows a short confirmation naming the target before anything starts.",
+                |ui| {
+                    changed |=
+                        widgets::toggle(ui, &mut state.settings.launch.confirm_before_launch)
+                            .changed();
+                },
+            );
 
-    widgets::section(ui, "Safety checks", None, |ui| {
-        widgets::setting_row(
-            ui,
-            "Ask before launching",
-            "Shows a short confirmation with the target before anything starts.",
-            |ui| {
-                changed |=
-                    widgets::toggle(ui, &mut state.settings.launch.confirm_before_launch).changed();
-            },
-        );
-        ui.add_space(theme.metrics.gap_md);
-        widgets::setting_row(
-            ui,
-            "Stop if a client is already running",
-            "Turn this off to allow more than one Roblox window. Roblox itself may still refuse.",
-            |ui| {
-                changed |=
-                    widgets::toggle(ui, &mut state.settings.launch.warn_when_already_running)
-                        .changed();
-            },
-        );
-        ui.add_space(theme.metrics.gap_md);
-        widgets::setting_row(
-            ui,
-            "How long to wait for the client",
-            "RustBlox watches for the client process for this long before reporting that it could not confirm the launch.",
-            |ui| {
-                changed |= widgets::stepper(
-                    ui,
-                    &mut state.settings.launch.launch_timeout_secs,
-                    5..=120,
-                    "s",
-                );
-            },
-        );
-    });
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    let count = state.settings.launch.quick_targets.len();
-    widgets::section(
-        ui,
-        "Quick launch entries",
-        Some("Manage these from the Home page."),
-        |ui| {
+            ui.add_space(theme.metrics.gap_md);
             ui.label(
                 egui::RichText::new(match count {
-                    0 => "No places saved.".to_string(),
-                    1 => "1 place saved.".to_string(),
-                    n => format!("{n} places saved."),
+                    0 => "No quick launch places saved yet. Add them on the Home page.".to_string(),
+                    1 => "1 quick launch place saved, managed on the Home page.".to_string(),
+                    n => format!("{n} quick launch places saved, managed on the Home page."),
                 })
                 .font(theme::text_style(theme::size::SMALL))
                 .color(theme.palette.text_muted),
             );
         },
     );
+
+    ui.add_space(theme.metrics.gap_lg);
+
+    widgets::section(ui, "Once Roblox is running", None, |ui| {
+        widgets::setting_row(
+            ui,
+            "Close RustBlox",
+            "The launcher window always closes. This covers launches started from this window.",
+            |ui| {
+                changed |=
+                    widgets::toggle(ui, &mut state.settings.launch.close_after_launch).changed();
+            },
+        );
+        ui.add_space(theme.metrics.gap_md);
+        widgets::setting_row(
+            ui,
+            "Minimise RustBlox",
+            "Drops this window to the taskbar instead of closing it.",
+            |ui| {
+                changed |=
+                    widgets::toggle(ui, &mut state.settings.launch.hide_window_on_launch).changed();
+            },
+        );
+    });
+
+    if advanced {
+        ui.add_space(theme.metrics.gap_lg);
+
+        widgets::section(ui, "Safety checks", None, |ui| {
+            widgets::setting_row(
+                ui,
+                "Stop if a client is already running",
+                "Turn this off to allow more than one Roblox window. Roblox itself may still refuse.",
+                |ui| {
+                    changed |=
+                        widgets::toggle(ui, &mut state.settings.launch.warn_when_already_running)
+                            .changed();
+                },
+            );
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
+                "How long to wait for the client",
+                "RustBlox watches for the client process for this long before saying it could not confirm the launch.",
+                |ui| {
+                    changed |= widgets::stepper(
+                        ui,
+                        &mut state.settings.launch.launch_timeout_secs,
+                        5..=120,
+                        "s",
+                    );
+                },
+            );
+        });
+    }
 
     if changed {
         state.mark_settings_dirty();
@@ -229,7 +250,7 @@ fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
         "Windows is set to light"
     };
 
-    widgets::section(ui, "Appearance", None, |ui| {
+    widgets::section(ui, "Colours", None, |ui| {
         let options: Vec<(ThemeMode, &str)> = ThemeMode::ALL
             .iter()
             .map(|choice| (*choice, choice.label()))
@@ -250,7 +271,7 @@ fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
         );
 
         ui.add_space(theme.metrics.gap_md);
-        widgets::setting_row(ui, "Accent", "Used for the main action.", |ui| {
+        widgets::setting_row(ui, "Accent", "Colours the main buttons.", |ui| {
             let mut selected = state.settings.appearance.accent;
             for accent in Accent::ALL.iter().rev() {
                 if accent_swatch(ui, theme, *accent, selected == *accent) {
@@ -264,12 +285,12 @@ fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
 
     ui.add_space(theme.metrics.gap_lg);
 
-    widgets::section(ui, "Layout", None, |ui| {
+    widgets::section(ui, "Size and motion", None, |ui| {
         let options: Vec<(Density, &str)> = Density::ALL
             .iter()
             .map(|density| (*density, density.label()))
             .collect();
-        widgets::setting_row(ui, "Density", "Compact tightens spacing.", |ui| {
+        widgets::setting_row(ui, "Density", "Compact tightens the spacing.", |ui| {
             changed |= Segmented::new(&options)
                 .show(ui, &mut state.settings.appearance.density)
                 .changed();
@@ -288,6 +309,7 @@ fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
                     ui,
                     &mut state.settings.appearance.ui_scale,
                     AppearanceSettings::MIN_SCALE..=AppearanceSettings::MAX_SCALE,
+                    SCALE_STEP,
                 )
                 .changed();
             },
@@ -297,7 +319,7 @@ fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
         widgets::setting_row(
             ui,
             "Motion",
-            "Turn off to remove hover, selection and launch animations.",
+            "Turn off to remove every hover, selection and progress animation.",
             |ui| {
                 changed |= widgets::toggle(ui, &mut state.settings.appearance.animations).changed();
             },
@@ -314,12 +336,13 @@ fn accent_swatch(ui: &mut egui::Ui, theme: &Theme, accent: Accent, selected: boo
     let color = egui::Color32::from_rgb(r, g, b);
     let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(26.0), egui::Sense::click());
 
-    let grow = ui
-        .ctx()
-        .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.1);
+    let grow = ui.ctx().animate_bool_with_time(
+        response.id.with("hover"),
+        response.hovered(),
+        theme.anim(0.1),
+    );
 
-    ui.painter()
-        .circle_filled(rect.center(), 9.0 + grow * 1.0, color);
+    ui.painter().circle_filled(rect.center(), 9.0 + grow, color);
 
     if selected {
         ui.painter().circle_stroke(
@@ -336,48 +359,109 @@ fn accent_swatch(ui: &mut egui::Ui, theme: &Theme, accent: Accent, selected: boo
     response.on_hover_text(accent.label()).clicked()
 }
 
-fn advanced(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
+fn advanced_tab(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
     let mut changed = false;
     let mut clear_pin = false;
 
-    widgets::section(
+    widgets::banner(
         ui,
-        "Launch pipeline",
-        Some("These run as steps in the launch panel."),
-        |ui| {
-            widgets::setting_row(
-                ui,
-                "Check the install before launching",
-                "Confirms the player executable and content folders exist. Turning this off skips the check.",
-                |ui| {
-                    changed |=
-                        widgets::toggle(ui, &mut state.settings.advanced.verify_before_launch)
-                            .changed();
-                },
-            );
-            ui.add_space(theme.metrics.gap_md);
-            widgets::setting_row(
-                ui,
-                "Write the flag profile on every launch",
-                "Keeps the client in sync with the Flags page, including after a Roblox update.",
-                |ui| {
-                    changed |= widgets::toggle(ui, &mut state.settings.advanced.apply_flag_profile)
-                        .changed();
-                },
-            );
-        },
+        feedback::Tone::Warning,
+        "These change how launches work",
+        "The defaults suit almost everyone. Nothing here is needed to play.",
     );
+    ui.add_space(theme.metrics.gap_lg);
+
+    widgets::section(ui, "Launch pipeline", None, |ui| {
+        widgets::setting_row(
+            ui,
+            "Check the install before launching",
+            "Confirms the player and content folders exist before starting the client.",
+            |ui| {
+                changed |= widgets::toggle(ui, &mut state.settings.advanced.verify_before_launch)
+                    .changed();
+            },
+        );
+        ui.add_space(theme.metrics.gap_md);
+        widgets::setting_row(
+            ui,
+            "Write the flag profile on every launch",
+            "On by default. Turn it off and flags only reach the client when you press Write now on the Flags page.",
+            |ui| {
+                changed |=
+                    widgets::toggle(ui, &mut state.settings.advanced.apply_flag_profile).changed();
+            },
+        );
+        ui.add_space(theme.metrics.gap_md);
+
+        let buffer = ui_state
+            .extra_args_buffer
+            .get_or_insert_with(|| state.settings.advanced.extra_player_arguments.clone());
+        widgets::setting_row(
+            ui,
+            "Extra player arguments",
+            "Appended after the launch argument. Leave empty unless you know what you need.",
+            |ui| {
+                if widgets::text_field(ui, buffer, "--fullscreen", 240.0).changed() {
+                    state.settings.advanced.extra_player_arguments = buffer.clone();
+                    changed = true;
+                }
+            },
+        );
+
+        let parsed = crate::roblox::launch::split_arguments(buffer);
+        if !parsed.is_empty() {
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(format!("Parsed as: {}", parsed.join("  ")))
+                    .font(egui::FontId::new(
+                        theme::size::MICRO,
+                        egui::FontFamily::Monospace,
+                    ))
+                    .color(theme.palette.text_faint),
+            );
+        }
+    });
 
     ui.add_space(theme.metrics.gap_lg);
 
     let pinned = state.settings.advanced.pinned_version_folder.clone();
-    widgets::section(ui, "Version pinning", None, |ui| {
+    widgets::section(ui, "Downloading Roblox", None, |ui| {
+        let buffer = ui_state
+            .channel_buffer
+            .get_or_insert_with(|| state.settings.advanced.channel.clone());
+
+        widgets::setting_row(
+            ui,
+            "Release channel",
+            "LIVE is the public build. Other names are Roblox internal and may not exist.",
+            |ui| {
+                if widgets::text_field(ui, buffer, "LIVE", 180.0).changed()
+                    && crate::roblox::deploy::is_valid_channel(buffer)
+                {
+                    state.settings.advanced.channel = buffer.trim().to_owned();
+                    changed = true;
+                }
+            },
+        );
+
+        ui.add_space(theme.metrics.gap_md);
+        widgets::setting_row(
+            ui,
+            "Keep downloaded packages",
+            "Leaves the zip files on disk so a reinstall does not fetch them again.",
+            |ui| {
+                changed |=
+                    widgets::toggle(ui, &mut state.settings.advanced.keep_downloads).changed();
+            },
+        );
+
+        ui.add_space(theme.metrics.gap_md);
         widgets::setting_row(
             ui,
             "Pinned version folder",
             &pinned
                 .clone()
-                .unwrap_or_else(|| "Not pinned, the newest install is used".into()),
+                .unwrap_or_else(|| "Not pinned, the newest copy is used".into()),
             |ui| {
                 if pinned.is_some()
                     && widgets::Button::new("Unpin")
@@ -391,79 +475,6 @@ fn advanced(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &m
             },
         );
     });
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    widgets::section(
-        ui,
-        "Extra player arguments",
-        Some("Appended after the launch argument."),
-        |ui| {
-            let buffer = ui_state
-                .extra_args_buffer
-                .get_or_insert_with(|| state.settings.advanced.extra_player_arguments.clone());
-
-            let response =
-                widgets::text_field(ui, buffer, "--fullscreen", ui.available_width() - 4.0);
-            if response.changed() {
-                state.settings.advanced.extra_player_arguments = buffer.clone();
-                changed = true;
-            }
-
-            let parsed = crate::roblox::launch::split_arguments(buffer);
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(if parsed.is_empty() {
-                    "No extra arguments.".to_string()
-                } else {
-                    format!("Parsed as: {}", parsed.join("  "))
-                })
-                .font(egui::FontId::new(
-                    theme::size::MICRO,
-                    egui::FontFamily::Monospace,
-                ))
-                .color(theme.palette.text_faint),
-            );
-        },
-    );
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    widgets::section(
-        ui,
-        "Downloading Roblox",
-        Some("Used by the Installation page."),
-        |ui| {
-            let buffer = ui_state
-                .channel_buffer
-                .get_or_insert_with(|| state.settings.advanced.channel.clone());
-
-            widgets::setting_row(
-                ui,
-                "Release channel",
-                "LIVE is the public build. Other channels are Roblox internal names and may not exist.",
-                |ui| {
-                    if widgets::text_field(ui, buffer, "LIVE", 180.0).changed()
-                        && crate::roblox::deploy::is_valid_channel(buffer)
-                    {
-                        state.settings.advanced.channel = buffer.trim().to_owned();
-                        changed = true;
-                    }
-                },
-            );
-
-            ui.add_space(theme.metrics.gap_md);
-            widgets::setting_row(
-                ui,
-                "Keep downloaded packages",
-                "Leaves the zip files on disk so a reinstall does not download them again.",
-                |ui| {
-                    changed |=
-                        widgets::toggle(ui, &mut state.settings.advanced.keep_downloads).changed();
-                },
-            );
-        },
-    );
 
     ui.add_space(theme.metrics.gap_lg);
 

@@ -28,11 +28,11 @@ pub fn toggle_enabled(ui: &mut Ui, value: &mut bool, enabled: bool) -> Response 
         let palette = theme.palette;
         let on = ui
             .ctx()
-            .animate_bool_with_time(response.id.with("on"), *value, 0.13);
+            .animate_bool_with_time(response.id.with("on"), *value, theme.anim(0.13));
         let hover = ui.ctx().animate_bool_with_time(
             response.id.with("hover"),
             enabled && response.hovered(),
-            0.11,
+            theme.anim(0.11),
         );
 
         let off_fill = blend(palette.surface_press, palette.border_strong, hover);
@@ -137,12 +137,16 @@ impl<'a, T: Copy + PartialEq> Segmented<'a, T> {
 
         let target_left = offsets[selected_index];
         let target_right = offsets[selected_index + 1];
-        let animated_left =
-            ui.ctx()
-                .animate_value_with_time(response.id.with("left"), target_left, 0.16);
-        let animated_right =
-            ui.ctx()
-                .animate_value_with_time(response.id.with("right"), target_right, 0.16);
+        let animated_left = ui.ctx().animate_value_with_time(
+            response.id.with("left"),
+            target_left,
+            theme.anim(0.16),
+        );
+        let animated_right = ui.ctx().animate_value_with_time(
+            response.id.with("right"),
+            target_right,
+            theme.anim(0.16),
+        );
 
         let indicator = Rect::from_min_max(
             egui::pos2(animated_left, inner.top()),
@@ -272,7 +276,21 @@ pub fn multiline_field(ui: &mut Ui, value: &mut String, rows: usize) -> Response
     response
 }
 
-pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>) -> Response {
+fn snap(value: f32, step: f32, range: &std::ops::RangeInclusive<f32>) -> f32 {
+    let snapped = if step > 0.0 {
+        range.start() + ((value - range.start()) / step).round() * step
+    } else {
+        value
+    };
+    snapped.clamp(*range.start(), *range.end())
+}
+
+pub fn slider(
+    ui: &mut Ui,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f32,
+) -> Response {
     let theme = Theme::get(ui.ctx());
     let width = 190.0;
     let height = theme.metrics.control_h;
@@ -280,17 +298,35 @@ pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>
         ui.allocate_exact_size(Vec2::new(width, height), Sense::click_and_drag());
     let mut response = response;
 
-    let track = Rect::from_center_size(rect.center(), Vec2::new(rect.width(), 5.0));
+    let track = Rect::from_center_size(rect.center(), Vec2::new(rect.width() - 20.0, 5.0));
     let span = (range.end() - range.start()).max(f32::EPSILON);
+    let scale = ui.ctx().pixels_per_point();
+    let anchor_id = response.id.with("anchor");
 
-    if response.dragged() || response.clicked() {
-        if let Some(pointer) = ui.ctx().pointer_latest_pos() {
+    let set = |next: f32, value: &mut f32, response: &mut Response| {
+        if (next - *value).abs() > f32::EPSILON {
+            *value = next;
+            response.mark_changed();
+        }
+    };
+
+    if response.drag_started() || response.clicked() {
+        if let Some(pointer) = response.interact_pointer_pos() {
             let t = ((pointer.x - track.left()) / track.width()).clamp(0.0, 1.0);
-            let next = range.start() + t * span;
-            if (next - *value).abs() > f32::EPSILON {
-                *value = next;
-                response.mark_changed();
-            }
+            let next = snap(range.start() + t * span, step, &range);
+            set(next, value, &mut response);
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(anchor_id, (pointer.x * scale, next, scale));
+            });
+        }
+    } else if response.dragged() {
+        let anchor: Option<(f32, f32, f32)> = ui.ctx().data(|data| data.get_temp(anchor_id));
+        if let (Some((from_x, from_value, from_scale)), Some(pointer)) =
+            (anchor, ui.ctx().pointer_latest_pos())
+        {
+            let moved = (pointer.x * scale - from_x) / (track.width() * from_scale).max(1.0);
+            let next = snap(from_value + moved * span, step, &range);
+            set(next, value, &mut response);
         }
     }
 
@@ -306,9 +342,11 @@ pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>
         palette.accent,
     );
 
-    let hover =
-        ui.ctx()
-            .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.11);
+    let hover = ui.ctx().animate_bool_with_time(
+        response.id.with("hover"),
+        response.hovered() || response.dragged(),
+        theme.anim(0.11),
+    );
     let radius = 8.0 + hover * 1.5;
     ui.painter().circle_filled(
         egui::pos2(knob_x, track.center().y),
@@ -387,4 +425,37 @@ pub fn stepper(
     });
 
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snap;
+
+    fn scale() -> std::ops::RangeInclusive<f32> {
+        0.8..=1.6
+    }
+
+    #[test]
+    fn snapping_lands_on_a_step() {
+        assert_eq!(snap(1.0, 0.05, &scale()), 1.0);
+        assert!((snap(1.02, 0.05, &scale()) - 1.0).abs() < 1e-5);
+        assert!((snap(1.04, 0.05, &scale()) - 1.05).abs() < 1e-5);
+    }
+
+    #[test]
+    fn snapping_never_leaves_the_range() {
+        assert_eq!(snap(-4.0, 0.05, &scale()), 0.8);
+        assert_eq!(snap(9.0, 0.05, &scale()), 1.6);
+    }
+
+    #[test]
+    fn both_ends_of_the_range_are_reachable() {
+        assert!((snap(0.81, 0.05, &scale()) - 0.8).abs() < 1e-5);
+        assert!((snap(1.59, 0.05, &scale()) - 1.6).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_zero_step_keeps_the_value_it_was_given() {
+        assert!((snap(1.234, 0.0, &scale()) - 1.234).abs() < 1e-5);
+    }
 }

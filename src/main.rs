@@ -63,17 +63,14 @@ fn run(invocation: Invocation) -> Result<()> {
 
     let window = state.persisted.window.sanitised();
     let command = invocation.command_kind.clone();
-    let launcher = ui::starts_in_launcher(&command);
+    let shell = ui::initial_shell(&command);
+    let small = shell.is_small();
 
-    let size = if launcher {
-        [ui::launcher::WIDTH, ui::launcher::HEIGHT]
+    let size = shell.size(window);
+    let minimum = if small {
+        size
     } else {
-        [window.width, window.height]
-    };
-    let minimum = if launcher {
-        [ui::launcher::WIDTH, ui::launcher::HEIGHT]
-    } else {
-        [WindowState::MIN_WIDTH, WindowState::MIN_HEIGHT]
+        egui::vec2(WindowState::MIN_WIDTH, WindowState::MIN_HEIGHT)
     };
 
     let options = eframe::NativeOptions {
@@ -82,9 +79,9 @@ fn run(invocation: Invocation) -> Result<()> {
             .with_app_id("rustblox")
             .with_inner_size(size)
             .with_min_inner_size(minimum)
-            .with_maximized(!launcher && window.maximized)
+            .with_maximized(!small && window.maximized)
             .with_decorations(false)
-            .with_resizable(!launcher)
+            .with_resizable(!small)
             .with_icon(ui::appicon::window_icon()),
         centered: true,
         ..Default::default()

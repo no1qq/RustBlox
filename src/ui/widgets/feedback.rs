@@ -60,38 +60,44 @@ pub fn badge(ui: &mut Ui, text: &str, tone: Tone) {
         .text(rect.center(), Align2::CENTER_CENTER, text, font, ink);
 }
 
+const PILL_PAD: f32 = 11.0;
+const PILL_DOT: f32 = 4.0;
+const PILL_GAP: f32 = 7.0;
+
 pub fn status_pill(ui: &mut Ui, text: &str, tone: Tone, pulsing: bool) {
     let theme = Theme::get(ui.ctx());
     let color = tone.color(&theme);
     let font = theme::medium(theme::size::SMALL);
     let galley = ui
         .painter()
-        .layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER);
+        .layout_no_wrap(text.to_owned(), font.clone(), theme.palette.text);
 
-    let size = Vec2::new(galley.size().x + 30.0, 24.0);
+    let lead = PILL_PAD + PILL_DOT * 2.0 + PILL_GAP;
+    let size = Vec2::new(lead + galley.size().x + PILL_PAD, 24.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
 
     ui.painter()
         .rect_filled(rect, theme.radius_sm(), theme.palette.surface_alt);
 
-    let dot = egui::pos2(rect.left() + 12.0, rect.center().y);
+    let dot = egui::pos2(rect.left() + PILL_PAD + PILL_DOT, rect.center().y);
     if pulsing && theme.metrics.animations {
         let time = ui.input(|input| input.time);
         let wave = ((time * 2.0).sin() as f32 * 0.5 + 0.5).clamp(0.0, 1.0);
         ui.painter().circle_filled(
             dot,
-            4.0 + wave * 3.5,
+            PILL_DOT + wave * 3.5,
             color.gamma_multiply(0.25 * (1.0 - wave)),
         );
         ui.ctx().request_repaint();
     }
-    ui.painter().circle_filled(dot, 4.0, color);
+    ui.painter().circle_filled(dot, PILL_DOT, color);
 
-    ui.painter().text(
-        egui::pos2(rect.left() + 21.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        text,
-        font,
+    ui.painter().galley(
+        egui::pos2(
+            rect.left() + lead,
+            rect.center().y - galley.size().y / 2.0 + theme::optical_nudge(theme::size::SMALL),
+        ),
+        galley,
         theme.palette.text,
     );
 }
@@ -153,6 +159,14 @@ pub fn stat(ui: &mut Ui, label: &str, value: &str, tone: Tone) {
     });
 }
 
+pub fn turning(ui: &Ui, theme: &Theme) -> f64 {
+    if !theme.metrics.animations {
+        return 0.0;
+    }
+    ui.ctx().request_repaint();
+    ui.input(|input| input.time)
+}
+
 pub fn step_marker(ui: &mut Ui, rect: Rect, state: MarkerState, index: usize) {
     let theme = Theme::get(ui.ctx());
     let palette = theme.palette;
@@ -173,14 +187,18 @@ pub fn step_marker(ui: &mut Ui, rect: Rect, state: MarkerState, index: usize) {
             );
         }
         MarkerState::Active => {
-            let time = ui.input(|input| input.time);
             ui.painter().circle_filled(
                 rect.center(),
                 rect.width() / 2.0,
                 palette.accent.gamma_multiply(0.16),
             );
-            icons::spinner(ui.painter(), rect.shrink(2.0), palette.accent, 2.0, time);
-            ui.ctx().request_repaint();
+            icons::spinner(
+                ui.painter(),
+                rect.shrink(2.0),
+                palette.accent,
+                2.0,
+                turning(ui, &theme),
+            );
         }
         MarkerState::Done => {
             ui.painter().circle_filled(
@@ -264,9 +282,9 @@ pub fn progress_bar(ui: &mut Ui, fraction: f32, label: &str, trailing: &str) {
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(4), palette.surface_press);
 
-    let eased = ui
-        .ctx()
-        .animate_value_with_time(ui.id().with("progress"), fraction, 0.18);
+    let eased =
+        ui.ctx()
+            .animate_value_with_time(ui.id().with("progress"), fraction, theme.anim(0.18));
 
     if eased > 0.0 {
         let filled = Rect::from_min_size(

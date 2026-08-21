@@ -174,13 +174,15 @@ fn paint(
     let palette = theme.palette;
     let id = response.id;
 
-    let hover =
-        ui.ctx()
-            .animate_bool_with_time(id.with("hover"), enabled && response.hovered(), 0.11);
+    let hover = ui.ctx().animate_bool_with_time(
+        id.with("hover"),
+        enabled && response.hovered(),
+        theme.anim(0.11),
+    );
     let press = ui.ctx().animate_bool_with_time(
         id.with("press"),
         enabled && response.is_pointer_button_down_on(),
-        0.06,
+        theme.anim(0.06),
     );
 
     let (mut fill, mut border, mut text) = match tone {
@@ -278,12 +280,12 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str, enabled: bool) -> Res
         let hover = ui.ctx().animate_bool_with_time(
             response.id.with("hover"),
             enabled && response.hovered(),
-            0.11,
+            theme.anim(0.11),
         );
         let press = ui.ctx().animate_bool_with_time(
             response.id.with("press"),
             enabled && response.is_pointer_button_down_on(),
-            0.06,
+            theme.anim(0.06),
         );
 
         let fill = blend(palette.surface_alt, palette.surface_hover, hover)

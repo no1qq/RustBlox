@@ -2,14 +2,17 @@ use egui::{Align, Align2, Layout, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, Vie
 
 use crate::app::AppState;
 use crate::uninstall;
+use crate::util::format::truncate_middle;
 
 use super::icons::{self, Icon};
 use super::theme::{self, Theme};
-use super::widgets;
+use super::widgets::{self, button::blend};
 use super::{appicon, Page, Shell, UiState};
 
 pub const WIDTH: f32 = 430.0;
 pub const HEIGHT: f32 = 250.0;
+pub const UNINSTALL_WIDTH: f32 = 470.0;
+pub const UNINSTALL_HEIGHT: f32 = 360.0;
 
 enum Choice {
     Launch,
@@ -17,7 +20,13 @@ enum Choice {
     Uninstall,
 }
 
-pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
+pub fn title_bar(
+    ui: &mut Ui,
+    theme: &Theme,
+    title: &str,
+    state: &mut AppState,
+    ui_state: &mut UiState,
+) {
     let palette = theme.palette;
     let rect = ui.max_rect();
 
@@ -26,7 +35,7 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
             rect.left_top(),
             egui::pos2(rect.right() - 46.0, rect.bottom()),
         ),
-        egui::Id::new("launcher-drag"),
+        egui::Id::new("small-drag"),
         Sense::click_and_drag(),
     );
     if drag.drag_started_by(egui::PointerButton::Primary) {
@@ -42,7 +51,7 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
     ui.painter().text(
         egui::pos2(mark.right() + 10.0, rect.center().y - 1.0),
         Align2::LEFT_CENTER,
-        "RustBlox",
+        title,
         theme::medium(theme::size::SMALL),
         palette.text_muted,
     );
@@ -56,7 +65,11 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 if super::chrome::window_button(ui, theme, Icon::Close, true).clicked() {
-                    state.close_requested = true;
+                    if ui_state.shell == Shell::Uninstall {
+                        ui_state.shell = Shell::Launcher;
+                    } else {
+                        state.close_requested = true;
+                    }
                 }
             });
         },
@@ -78,9 +91,9 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
         if ready {
             None
         } else {
-            Some("Roblox is not installed yet")
+            Some("Downloads Roblox first, then starts it")
         },
-        ready && !busy,
+        !busy,
         true,
     ) {
         choice = Some(Choice::Launch);
@@ -121,7 +134,7 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
                 ui_state.page = Page::Installation;
             }
         }
-        Some(Choice::Uninstall) => ui_state.uninstall = Some(false),
+        Some(Choice::Uninstall) => ui_state.shell = Shell::Uninstall,
         None => {}
     }
 }
@@ -150,38 +163,43 @@ fn entry(
         return false;
     }
 
-    let hover = ui
-        .ctx()
-        .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.1);
+    let hover = ui.ctx().animate_bool_with_time(
+        response.id.with("hover"),
+        enabled && response.hovered(),
+        theme.anim(0.09),
+    );
+    let press = ui.ctx().animate_bool_with_time(
+        response.id.with("press"),
+        enabled && response.is_pointer_button_down_on(),
+        theme.anim(0.05),
+    );
 
-    let fill = if primary {
-        let base = palette.accent;
-        if hover > 0.0 {
-            palette.accent_hover
-        } else {
-            base
-        }
+    let mut fill = if primary {
+        blend(palette.accent, palette.accent_hover, hover)
     } else {
-        let base = palette.surface;
-        if hover > 0.0 {
-            palette.surface_hover
-        } else {
-            base
-        }
+        blend(palette.surface, palette.surface_hover, hover)
     };
-
-    let fill = if enabled {
-        fill
-    } else {
-        palette.surface.gamma_multiply(0.7)
-    };
+    if press > 0.0 {
+        fill = blend(
+            fill,
+            if primary {
+                palette.accent_press
+            } else {
+                palette.surface_press
+            },
+            press,
+        );
+    }
+    if !enabled {
+        fill = palette.surface.gamma_multiply(0.7);
+    }
 
     ui.painter().rect_filled(rect, theme.radius_sm(), fill);
     if !primary {
         ui.painter().rect_stroke(
             rect,
             theme.radius_sm(),
-            Stroke::new(1.0, palette.border),
+            Stroke::new(1.0, blend(palette.border, palette.border_strong, hover)),
             StrokeKind::Inside,
         );
     }
@@ -240,7 +258,7 @@ fn entry(
         ui.painter(),
         Icon::ChevronRight,
         Rect::from_center_size(
-            egui::pos2(rect.right() - 22.0, rect.center().y),
+            egui::pos2(rect.right() - 22.0 + hover * 3.0, rect.center().y),
             Vec2::splat(15.0),
         ),
         sub,
@@ -254,72 +272,12 @@ fn entry(
     enabled && response.clicked()
 }
 
-pub fn uninstall_dialog(
-    ctx: &egui::Context,
-    theme: &Theme,
-    state: &mut AppState,
-    ui_state: &mut UiState,
-) {
-    let Some(mut remove_settings) = ui_state.uninstall else {
-        return;
-    };
-
+pub fn uninstall_panel(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
+    let palette = theme.palette;
     let mut go = false;
     let mut cancel = false;
 
-    let dismissed = super::overlay::modal(ctx, theme, "uninstall", 420.0, |ui| {
-        ui.label(
-            egui::RichText::new("Uninstall RustBlox")
-                .font(theme::medium(theme::size::TITLE))
-                .color(theme.palette.text),
-        );
-        ui.add_space(theme.metrics.gap_sm);
-        ui.label(
-            egui::RichText::new(
-                "This removes every Roblox copy RustBlox installed, its logs, its saved state and its flag profile. Roblox itself, and any copy Roblox installed, is left alone.",
-            )
-            .font(theme::text_style(theme::size::SMALL))
-            .color(theme.palette.text_muted),
-        );
-
-        ui.add_space(theme.metrics.gap_md);
-        widgets::separator(ui);
-        ui.add_space(theme.metrics.gap_sm);
-
-        for path in uninstall::targets(state.store.paths(), plan(remove_settings)) {
-            ui.label(
-                egui::RichText::new(path.display().to_string())
-                    .font(egui::FontId::new(
-                        theme::size::MICRO,
-                        egui::FontFamily::Monospace,
-                    ))
-                    .color(theme.palette.text_faint),
-            );
-        }
-        ui.label(
-            egui::RichText::new(
-                state
-                    .exe_path
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| "the RustBlox program".into()),
-            )
-            .font(egui::FontId::new(
-                theme::size::MICRO,
-                egui::FontFamily::Monospace,
-            ))
-            .color(theme.palette.text_faint),
-        );
-
-        ui.add_space(theme.metrics.gap_md);
-        widgets::checkbox_row(
-            ui,
-            &mut remove_settings,
-            "Also delete my settings",
-            "Keeping them means a reinstall starts where you left off.",
-        );
-
-        ui.add_space(theme.metrics.gap_lg);
+    ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
         ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
@@ -333,17 +291,67 @@ pub fn uninstall_dialog(
                     .clicked();
             });
         });
+
+        ui.add_space(theme.metrics.gap_md);
+
+        ui.with_layout(Layout::top_down(Align::Min), |ui| {
+            ui.label(
+                egui::RichText::new("Uninstall RustBlox")
+                    .font(theme::strong(theme::size::TITLE))
+                    .color(palette.text),
+            );
+            ui.add_space(theme.metrics.gap_xs);
+            ui.label(
+                egui::RichText::new(
+                    "This removes every Roblox copy RustBlox installed, plus its logs, saved state and flag profile. Nothing outside these folders is touched.",
+                )
+                .font(theme::text_style(theme::size::SMALL))
+                .color(palette.text_muted),
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+
+            widgets::nested(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                let plan = plan(ui_state.uninstall_settings);
+                for path in uninstall::targets(state.store.paths(), plan) {
+                    path_line(ui, theme, &path.display().to_string());
+                }
+                if let Some(exe) = state.exe_path.clone() {
+                    path_line(ui, theme, &exe.display().to_string());
+                }
+            });
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::checkbox_row(
+                ui,
+                &mut ui_state.uninstall_settings,
+                "Also delete my settings",
+                "Keeping them means a reinstall starts where you left off.",
+            );
+        });
     });
 
-    ui_state.uninstall = Some(remove_settings);
-
-    if cancel || dismissed {
-        ui_state.uninstall = None;
+    if cancel {
+        ui_state.shell = Shell::Launcher;
     }
     if go {
-        ui_state.uninstall = None;
+        let remove_settings = ui_state.uninstall_settings;
+        ui_state.shell = Shell::Launcher;
         state.uninstall(remove_settings);
     }
+}
+
+fn path_line(ui: &mut Ui, theme: &Theme, text: &str) {
+    ui.label(
+        egui::RichText::new(truncate_middle(text, 52))
+            .font(egui::FontId::new(
+                theme::size::MICRO,
+                egui::FontFamily::Monospace,
+            ))
+            .color(theme.palette.text_faint),
+    )
+    .on_hover_text(text);
 }
 
 fn plan(remove_settings: bool) -> uninstall::Plan {

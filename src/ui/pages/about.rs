@@ -137,6 +137,7 @@ fn updates(
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
+    let advanced = state.settings.advanced_mode;
     let mut open_url = None;
     let mut open_path = None;
     let mut action = None;
@@ -170,6 +171,32 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     });
 
     ui.add_space(theme.metrics.gap_lg);
+    updates(ui, &theme, state, &mut open_url, &mut action);
+
+    ui.add_space(theme.metrics.gap_lg);
+
+    widgets::section(ui, "Known limits", None, |ui| {
+        widgets::banner(
+            ui,
+            feedback::Tone::Info,
+            "RustBlox cannot sign you in",
+            "Joining a specific server needs an authentication ticket that only Roblox itself can mint from your web session. RustBlox never asks for your password or cookie. That is why launching goes through the client or a deep link rather than a private join API.");
+        if advanced {
+            ui.add_space(theme.metrics.gap_sm);
+            widgets::banner(
+                ui,
+                feedback::Tone::Warning,
+                "Flags are unsupported by Roblox",
+                "The Flags page writes a file the client happens to read at startup. Roblox does not document it and can change or ignore it at any time.");
+        }
+    });
+
+    if !advanced {
+        finish(state, open_url, open_path, action);
+        return;
+    }
+
+    ui.add_space(theme.metrics.gap_lg);
 
     widgets::section(ui, "How launching works", None, |ui| {
         for (title, body) in [
@@ -201,25 +228,6 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
                 });
                 ui.add_space(theme.metrics.gap_sm);
             }
-    });
-
-    ui.add_space(theme.metrics.gap_lg);
-    updates(ui, &theme, state, &mut open_url, &mut action);
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    widgets::section(ui, "Known limits", None, |ui| {
-        widgets::banner(
-            ui,
-            feedback::Tone::Info,
-            "RustBlox cannot sign you in",
-            "Joining a specific server needs an authentication ticket that only Roblox itself can mint from your web session. RustBlox never asks for your password or cookie. That is why launching goes through the client or a deep link rather than a private join API.");
-        ui.add_space(theme.metrics.gap_sm);
-        widgets::banner(
-            ui,
-            feedback::Tone::Warning,
-            "Flags are unsupported by Roblox",
-            "The Flags page writes a file the client happens to read at startup. Roblox does not document it and can change or ignore it at any time.");
     });
 
     ui.add_space(theme.metrics.gap_lg);
@@ -336,6 +344,15 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         }
     });
 
+    finish(state, open_url, open_path, action);
+}
+
+fn finish(
+    state: &mut AppState,
+    open_url: Option<String>,
+    open_path: Option<std::path::PathBuf>,
+    action: Option<Action>,
+) {
     if let Some(url) = open_url {
         state.open_url(&url);
     }

@@ -197,7 +197,7 @@ fn header(ui: &mut egui::Ui, theme: &Theme, state: &AppState) {
                 match icon {
                     Some(icon) => icons::draw(ui.painter(), icon, badge.shrink(13.0), tint, 2.4),
                     None => {
-                        let time = ui.input(|input| input.time);
+                        let time = feedback::turning(ui, theme);
                         icons::ring(ui.painter(), badge.shrink(10.0), palette.border_strong, 2.4);
                         icons::spinner(ui.painter(), badge.shrink(10.0), tint, 2.4, time);
                     }

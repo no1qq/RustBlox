@@ -157,6 +157,90 @@ impl FlagProfile {
     }
 }
 
+pub struct Preset {
+    pub name: &'static str,
+    pub detail: &'static str,
+    pub pairs: &'static [(&'static str, &'static str)],
+}
+
+pub const PRESETS: [Preset; 7] = [
+    Preset {
+        name: "Show FPS",
+        detail: "Draws the frame counter Roblox uses internally in the corner of the client.",
+        pairs: &[("FFlagDebugDisplayFPS", "true")],
+    },
+    Preset {
+        name: "Unlock frame rate",
+        detail: "Raises the frame cap the client schedules against to 240 instead of 60.",
+        pairs: &[("DFIntTaskSchedulerTargetFps", "240")],
+    },
+    Preset {
+        name: "Prefer Vulkan",
+        detail: "Asks the client to render through Vulkan and turns the other two off.",
+        pairs: &[
+            ("FFlagDebugGraphicsPreferVulkan", "true"),
+            ("FFlagDebugGraphicsPreferD3D11", "false"),
+            ("FFlagDebugGraphicsPreferOpenGL", "false"),
+        ],
+    },
+    Preset {
+        name: "Prefer Direct3D 11",
+        detail: "Asks the client to render through Direct3D 11 and turns the other two off.",
+        pairs: &[
+            ("FFlagDebugGraphicsPreferD3D11", "true"),
+            ("FFlagDebugGraphicsPreferVulkan", "false"),
+            ("FFlagDebugGraphicsPreferOpenGL", "false"),
+        ],
+    },
+    Preset {
+        name: "Prefer OpenGL",
+        detail: "Asks the client to render through OpenGL and turns the other two off.",
+        pairs: &[
+            ("FFlagDebugGraphicsPreferOpenGL", "true"),
+            ("FFlagDebugGraphicsPreferVulkan", "false"),
+            ("FFlagDebugGraphicsPreferD3D11", "false"),
+        ],
+    },
+    Preset {
+        name: "Future lighting",
+        detail: "Forces the newest lighting technology instead of whatever the place picked.",
+        pairs: &[("FFlagDebugForceFutureIsBrightPhase3", "true")],
+    },
+    Preset {
+        name: "No player shadows",
+        detail: "Drops the shadow intensity to zero, which usually helps on weak hardware.",
+        pairs: &[("FIntRenderShadowIntensity", "0")],
+    },
+];
+
+pub fn preset_named(name: &str) -> Option<&'static Preset> {
+    PRESETS.iter().find(|preset| preset.name == name)
+}
+
+impl FlagProfile {
+    pub fn preset_applied(&self, preset: &Preset) -> bool {
+        preset.pairs.iter().all(|(key, value)| {
+            let wanted = FlagValue::from_input(value);
+            self.entries.iter().any(|entry| {
+                entry.enabled && entry.key.eq_ignore_ascii_case(key) && entry.value == wanted
+            })
+        })
+    }
+
+    pub fn apply_preset(&mut self, preset: &Preset) {
+        for (key, value) in preset.pairs {
+            self.set((*key).to_owned(), FlagValue::from_input(value));
+        }
+        self.sort();
+    }
+
+    pub fn remove_preset(&mut self, preset: &Preset) {
+        for (key, _) in preset.pairs {
+            self.remove(key);
+        }
+    }
+}
+
 pub fn validate_key(key: &str) -> Result<()> {
     let trimmed = key.trim();
     if trimmed.is_empty() {
@@ -345,6 +429,63 @@ mod tests {
         let loaded = load_profile(dir.path()).unwrap();
 
         assert_eq!(loaded.to_json(), profile.to_json());
+    }
+
+    #[test]
+    fn a_preset_reads_as_off_until_every_pair_matches() {
+        let preset = preset_named("Prefer Vulkan").unwrap();
+        let mut profile = FlagProfile::default();
+        assert!(!profile.preset_applied(preset));
+
+        profile.set(
+            "FFlagDebugGraphicsPreferVulkan".into(),
+            FlagValue::Bool(true),
+        );
+        assert!(!profile.preset_applied(preset));
+
+        profile.apply_preset(preset);
+        assert!(profile.preset_applied(preset));
+    }
+
+    #[test]
+    fn the_rendering_presets_turn_each_other_off() {
+        let mut profile = FlagProfile::default();
+        profile.apply_preset(preset_named("Prefer Vulkan").unwrap());
+        profile.apply_preset(preset_named("Prefer OpenGL").unwrap());
+
+        assert!(profile.preset_applied(preset_named("Prefer OpenGL").unwrap()));
+        assert!(!profile.preset_applied(preset_named("Prefer Vulkan").unwrap()));
+    }
+
+    #[test]
+    fn removing_a_preset_takes_its_flags_with_it() {
+        let preset = preset_named("Show FPS").unwrap();
+        let mut profile = FlagProfile::default();
+        profile.apply_preset(preset);
+        profile.remove_preset(preset);
+
+        assert!(profile.entries.is_empty());
+        assert!(!profile.preset_applied(preset));
+    }
+
+    #[test]
+    fn a_disabled_entry_does_not_count_as_a_preset_being_on() {
+        let preset = preset_named("Show FPS").unwrap();
+        let mut profile = FlagProfile::default();
+        profile.apply_preset(preset);
+        profile.entries[0].enabled = false;
+        assert!(!profile.preset_applied(preset));
+    }
+
+    #[test]
+    fn every_preset_uses_names_the_editor_would_accept() {
+        for preset in &PRESETS {
+            assert!(!preset.pairs.is_empty(), "{} has no flags", preset.name);
+            for (key, _) in preset.pairs {
+                assert!(validate_key(key).is_ok(), "{key} is not a usable flag name");
+                assert!(!looks_unusual(key), "{key} has an unfamiliar prefix");
+            }
+        }
     }
 
     #[test]

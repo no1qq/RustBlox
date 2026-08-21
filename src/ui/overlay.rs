@@ -175,7 +175,9 @@ pub fn launch_overlay(
         state.dismiss_launch();
     }
     if retry {
-        if let Some(target) = state.session.target.clone() {
+        if state.flow.target.is_some() {
+            state.retry_flow();
+        } else if let Some(target) = state.session.target.clone() {
             state.dismiss_launch();
             state.launch(target);
         }
@@ -213,7 +215,7 @@ fn header(ui: &mut egui::Ui, theme: &Theme, state: &AppState) {
                         icons::draw(ui.painter(), icon, badge.shrink(13.0), tint, 2.4);
                     }
                     None => {
-                        let time = ui.input(|input| input.time);
+                        let time = feedback::turning(ui, theme);
                         icons::ring(ui.painter(), badge.shrink(10.0), palette.border_strong, 2.4);
                         icons::spinner(ui.painter(), badge.shrink(10.0), tint, 2.4, time);
                     }
@@ -371,33 +373,8 @@ pub fn confirm_dialog(
 
     if confirmed {
         ui_state.confirm = None;
-        state.launch(target);
+        super::chrome::begin_launch(state, ui_state, target);
     } else if cancelled {
         ui_state.confirm = None;
     }
-}
-
-pub fn modal<R>(
-    ctx: &egui::Context,
-    theme: &Theme,
-    id: &str,
-    width: f32,
-    add: impl FnOnce(&mut egui::Ui) -> R,
-) -> bool {
-    let palette = theme.palette;
-    let response = egui::Modal::new(egui::Id::new(id))
-        .backdrop_color(palette.scrim)
-        .frame(
-            egui::Frame::new()
-                .fill(palette.surface)
-                .stroke(Stroke::new(1.0, palette.border))
-                .corner_radius(theme.radius_md())
-                .inner_margin(egui::Margin::same(22)),
-        )
-        .show(ctx, |ui| {
-            ui.set_width(width);
-            add(ui);
-        });
-
-    response.should_close()
 }

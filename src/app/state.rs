@@ -16,6 +16,7 @@ use crate::roblox::process::RobloxStatus;
 use crate::roblox::versions;
 use crate::{log_error, log_info, log_warn};
 
+use super::flow::{FlowStage, FlowStatus, LaunchFlow};
 use super::install_session::{InstallPhase, InstallSession};
 use super::selfupdate::AppUpdate;
 use super::session::{LaunchSession, Phase};
@@ -41,6 +42,7 @@ pub struct AppState {
     pub applied_flags: Option<FlagProfile>,
     pub session: LaunchSession,
     pub install: InstallSession,
+    pub flow: LaunchFlow,
     pub app_update: AppUpdate,
     pub tasks: Tasks,
     pub toasts: Toasts,
@@ -113,6 +115,7 @@ impl AppState {
             applied_flags: None,
             session: LaunchSession::default(),
             install: InstallSession::default(),
+            flow: LaunchFlow::default(),
             app_update: AppUpdate::default(),
             tasks: Tasks::default(),
             toasts: Toasts::default(),
@@ -146,7 +149,6 @@ impl AppState {
         if !self.initial_scan_done {
             self.initial_scan_done = true;
             self.rescan();
-            self.check_latest();
             self.check_app_update();
         }
 
@@ -154,7 +156,7 @@ impl AppState {
             self.consume(update);
         }
 
-        let interval = if self.session.phase.is_busy() {
+        let interval = if self.session.phase.is_busy() || self.flow.stage.is_busy() {
             BUSY_POLL
         } else {
             IDLE_POLL
@@ -302,6 +304,8 @@ impl AppState {
     }
 
     fn finish_install(&mut self) {
+        let in_flow = self.flow.stage == FlowStage::Preparing;
+
         match self.install.phase {
             InstallPhase::Succeeded => {
                 if let Some(report) = self.install.report.clone() {
@@ -324,17 +328,19 @@ impl AppState {
                         );
                     }
 
-                    if report.already_present {
-                        self.toasts.info("Roblox is already up to date");
-                    } else {
-                        self.toasts.push(
-                            ToastKind::Success,
-                            format!("Installed Roblox {}", report.version),
-                            Some(format!(
-                                "Downloaded {}",
-                                crate::roblox::install::format_size(report.downloaded)
-                            )),
-                        );
+                    if !in_flow {
+                        if report.already_present {
+                            self.toasts.info("Roblox is already up to date");
+                        } else {
+                            self.toasts.push(
+                                ToastKind::Success,
+                                format!("Installed Roblox {}", report.version),
+                                Some(format!(
+                                    "Downloaded {}",
+                                    crate::roblox::install::format_size(report.downloaded)
+                                )),
+                            );
+                        }
                     }
                     self.latest_note = None;
                     self.tidy_after_install(&report.folder);
@@ -353,6 +359,10 @@ impl AppState {
             }
             InstallPhase::Cancelled => log_info!("install cancelled by the user"),
             _ => {}
+        }
+
+        if in_flow {
+            self.advance_flow_after_install();
         }
     }
 
@@ -389,6 +399,9 @@ impl AppState {
 
     pub fn dismiss_install(&mut self) {
         self.install.reset();
+        if !self.flow.stage.is_busy() {
+            self.flow.reset();
+        }
     }
 
     fn finish_launch(&mut self) {
@@ -419,8 +432,10 @@ impl AppState {
                     .map(|failure| failure.message.clone())
                     .unwrap_or_default();
                 log_error!("launch failed: {message}");
-                self.toasts
-                    .push(ToastKind::Error, "Launch failed", Some(message.clone()));
+                if self.flow.stage != FlowStage::Launching {
+                    self.toasts
+                        .push(ToastKind::Error, "Launch failed", Some(message.clone()));
+                }
                 Some(LaunchRecord {
                     at: Local::now(),
                     outcome: LaunchOutcome::Failed,
@@ -450,6 +465,11 @@ impl AppState {
 
         self.last_poll = Instant::now() - BUSY_POLL;
 
+        if self.flow.stage == FlowStage::Launching {
+            self.finish_flow();
+            return;
+        }
+
         if self.session.phase == Phase::Succeeded {
             if self.settings.launch.close_after_launch || self.forwarding {
                 self.close_requested = true;
@@ -457,6 +477,170 @@ impl AppState {
                 self.minimize_requested = true;
                 self.session.reset();
             }
+        }
+    }
+
+    pub fn start_launch_flow(&mut self, target: LaunchTarget) {
+        if self.flow.stage.is_busy() || self.session.phase.is_busy() {
+            return;
+        }
+
+        log_info!("launch flow requested: {}", target.headline());
+        self.flow.begin(target.clone());
+
+        let missing = self.detection.active().is_none();
+        if self.settings.launch.update_roblox_on_launch || missing {
+            self.install.reset();
+            self.install_roblox(false);
+            if !self.install.phase.is_busy() {
+                self.flow.fail(
+                    "Roblox could not be prepared.".into(),
+                    Some("Another install or launch is still running.".into()),
+                    false,
+                );
+            }
+            return;
+        }
+
+        self.launch_in_flow();
+    }
+
+    fn launch_in_flow(&mut self) {
+        let Some(target) = self.flow.target.clone() else {
+            self.flow.reset();
+            return;
+        };
+
+        self.flow.stage = FlowStage::Launching;
+        self.session.reset();
+        self.launch(target);
+    }
+
+    fn advance_flow_after_install(&mut self) {
+        match self.install.phase {
+            InstallPhase::Succeeded => {
+                self.install.reset();
+                self.launch_in_flow();
+            }
+            InstallPhase::Cancelled => {
+                self.install.reset();
+                self.flow
+                    .fail("The launch was cancelled.".into(), None, true);
+            }
+            _ => {
+                let failure = self.install.failure.clone();
+                let message = failure
+                    .as_ref()
+                    .map(|failure| failure.message.clone())
+                    .unwrap_or_else(|| "Roblox could not be prepared.".into());
+                let hint = failure.as_ref().and_then(|failure| failure.hint.clone());
+                self.install.reset();
+
+                if self.detection.active().is_some() {
+                    log_warn!("update check failed, starting the installed copy: {message}");
+                    self.flow.note =
+                        Some("The update check failed, starting the copy you have.".into());
+                    self.launch_in_flow();
+                } else {
+                    self.flow.fail(message, hint, false);
+                }
+            }
+        }
+    }
+
+    fn finish_flow(&mut self) {
+        match self.session.phase {
+            Phase::Succeeded => self.flow.stage = FlowStage::Finished,
+            Phase::Cancelled => self
+                .flow
+                .fail("The launch was cancelled.".into(), None, true),
+            _ => {
+                let failure = self.session.failure.clone();
+                self.flow.fail(
+                    failure
+                        .as_ref()
+                        .map(|failure| failure.message.clone())
+                        .unwrap_or_else(|| "Roblox could not be started.".into()),
+                    failure.as_ref().and_then(|failure| failure.hint.clone()),
+                    false,
+                );
+            }
+        }
+    }
+
+    pub fn cancel_flow(&mut self) {
+        match self.flow.stage {
+            FlowStage::Preparing => self.cancel_install(),
+            FlowStage::Launching => self.cancel_launch(),
+            _ => {}
+        }
+    }
+
+    pub fn dismiss_flow(&mut self) {
+        self.flow.reset();
+        self.install.reset();
+        self.session.reset();
+    }
+
+    pub fn retry_flow(&mut self) {
+        let Some(target) = self.flow.target.clone() else {
+            return;
+        };
+        self.dismiss_flow();
+        self.start_launch_flow(target);
+    }
+
+    pub fn flow_status(&self) -> FlowStatus {
+        match self.flow.stage {
+            FlowStage::Preparing => {
+                let progress = self
+                    .install
+                    .progress
+                    .as_ref()
+                    .filter(|progress| progress.total > 0)
+                    .map(|progress| progress.fraction());
+                FlowStatus {
+                    headline: self
+                        .install
+                        .active_stage()
+                        .map(|row| row.stage.title().to_owned())
+                        .unwrap_or_else(|| "Checking for Roblox updates".into()),
+                    detail: self.install.subline(),
+                    progress,
+                }
+            }
+            FlowStage::Launching => FlowStatus {
+                headline: self
+                    .session
+                    .active_step()
+                    .map(|step| step.id.title().to_owned())
+                    .unwrap_or_else(|| "Starting Roblox".into()),
+                detail: self
+                    .flow
+                    .note
+                    .clone()
+                    .unwrap_or_else(|| self.session.subline()),
+                progress: None,
+            },
+            FlowStage::Finished => FlowStatus {
+                headline: "Roblox is running".into(),
+                detail: "Have fun.".into(),
+                progress: Some(1.0),
+            },
+            FlowStage::Failed => FlowStatus {
+                headline: if self.flow.cancelled {
+                    "Launch cancelled".into()
+                } else {
+                    "Roblox could not be started".into()
+                },
+                detail: self.flow.failure.clone().unwrap_or_default(),
+                progress: None,
+            },
+            FlowStage::Idle => FlowStatus {
+                headline: "Ready".into(),
+                detail: String::new(),
+                progress: None,
+            },
         }
     }
 
@@ -680,6 +864,9 @@ impl AppState {
 
     pub fn dismiss_launch(&mut self) {
         self.session.reset();
+        if !self.flow.stage.is_busy() {
+            self.flow.reset();
+        }
     }
 
     pub fn mark_settings_dirty(&mut self) {

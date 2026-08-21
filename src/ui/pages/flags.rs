@@ -13,12 +13,14 @@ enum Action {
     Remove(String),
     Toggle(String),
     Edit { key: String, value: String },
+    TogglePreset(&'static str),
     Save,
     Apply,
     ClearApplied,
     OpenRaw,
     CloseRaw,
     CommitRaw,
+    Copied,
     OpenAppliedFile,
 }
 
@@ -38,7 +40,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
             {
                 action = Some(Action::Save);
             }
-            if widgets::Button::new("Raw JSON")
+            if widgets::Button::new("Import or export")
                 .icon(Icon::Copy)
                 .tone(widgets::Tone::Ghost)
                 .show(ui)
@@ -63,16 +65,49 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     status_card(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
 
-    if let Some(text) = ui_state.raw_editor.clone() {
-        raw_editor(ui, &theme, ui_state, text, &mut action);
-        ui.add_space(theme.metrics.gap_lg);
-    }
+    presets(ui, &theme, state, &mut action);
+    ui.add_space(theme.metrics.gap_lg);
 
     editor(ui, &theme, state, ui_state, &mut action);
+
+    let ctx = ui.ctx().clone();
+    json_dialog(&ctx, &theme, ui_state, &mut action);
 
     if let Some(action) = action {
         apply(state, ui_state, action);
     }
+}
+
+fn presets(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
+    widgets::section(
+        ui,
+        "Presets",
+        Some("Each one adds or removes the handful of flags it needs."),
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing =
+                    egui::vec2(theme.metrics.gap_sm, theme.metrics.gap_sm);
+
+                for preset in &flags::PRESETS {
+                    let on = state.flags.preset_applied(preset);
+                    let response = widgets::Button::new(preset.name)
+                        .icon(if on { Icon::Check } else { Icon::Plus })
+                        .tone(if on {
+                            widgets::Tone::Primary
+                        } else {
+                            widgets::Tone::Neutral
+                        })
+                        .size(widgets::Size::Small)
+                        .show(ui)
+                        .on_hover_text(preset.detail);
+
+                    if response.clicked() {
+                        *action = Some(Action::TogglePreset(preset.name));
+                    }
+                }
+            });
+        },
+    );
 }
 
 fn status_card(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
@@ -141,17 +176,20 @@ fn status_card(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut 
 
         if let Some(install) = &install {
             ui.add_space(theme.metrics.gap_md);
-            widgets::separator(ui);
-            ui.add_space(theme.metrics.gap_sm);
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(install.client_settings_file().display().to_string())
-                        .font(egui::FontId::new(
-                            theme::size::MICRO,
-                            egui::FontFamily::Monospace,
-                        ))
-                        .color(theme.palette.text_faint),
-                );
+                let path = install.client_settings_file().display().to_string();
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(&path)
+                            .font(egui::FontId::new(
+                                theme::size::MICRO,
+                                egui::FontFamily::Monospace,
+                            ))
+                            .color(theme.palette.text_faint),
+                    )
+                    .truncate(),
+                )
+                .on_hover_text(&path);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if applied_count.is_some()
                         && widgets::Button::new("Open folder")
@@ -177,35 +215,112 @@ fn status_card(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut 
     });
 }
 
-fn raw_editor(
-    ui: &mut egui::Ui,
+const DIALOG_WIDTH: f32 = 520.0;
+
+fn json_dialog(
+    ctx: &egui::Context,
     theme: &Theme,
     ui_state: &mut UiState,
-    _text: String,
     action: &mut Option<Action>,
 ) {
-    widgets::section(
-        ui,
-        "Raw JSON",
-        Some("Paste a flag list here to replace the whole profile."),
-        |ui| {
-            if let Some(buffer) = ui_state.raw_editor.as_mut() {
-                widgets::multiline_field(ui, buffer, 12);
-            }
+    if ui_state.raw_editor.is_none() {
+        return;
+    }
 
-            if let Some(error) = &ui_state.raw_error {
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(error)
-                        .font(theme::text_style(theme::size::SMALL))
-                        .color(theme.palette.danger),
-                );
-            }
+    let palette = theme.palette;
+    let pasted = ctx.input(|input| {
+        input.events.iter().find_map(|event| match event {
+            egui::Event::Paste(text) => Some(text.clone()),
+            _ => None,
+        })
+    });
+
+    let mut close = false;
+
+    let response = egui::Modal::new(egui::Id::new("flag-json"))
+        .backdrop_color(palette.scrim)
+        .frame(
+            egui::Frame::new()
+                .fill(palette.surface)
+                .stroke(egui::Stroke::new(1.0, palette.border))
+                .corner_radius(theme.radius_lg())
+                .inner_margin(egui::Margin::same(22)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(DIALOG_WIDTH);
+
+            ui.label(
+                egui::RichText::new("Import or export flags")
+                    .font(theme::strong(theme::size::TITLE))
+                    .color(palette.text),
+            );
+            ui.add_space(theme.metrics.gap_xs);
+            ui.label(
+                egui::RichText::new(
+                    "This is the same JSON Roblox reads. Copy it to share your setup, or paste someone else's over it and replace the profile.",
+                )
+                .font(theme::text_style(theme::size::SMALL))
+                .color(palette.text_muted),
+            );
 
             ui.add_space(theme.metrics.gap_md);
+
+            let buffer = ui_state.raw_editor.as_mut().expect("the dialog is open");
+            let field = widgets::multiline_field(ui, buffer, 10);
+            if let Some(text) = &pasted {
+                if !field.has_focus() {
+                    buffer.clear();
+                    buffer.push_str(text);
+                }
+            }
+
+            let parsed = flags::FlagProfile::parse(buffer);
+            let (tone, note) = match &parsed {
+                Ok(profile) => (
+                    palette.success,
+                    match profile.entries.len() {
+                        0 => "Valid, no flags in it".to_string(),
+                        1 => "Valid, 1 flag".to_string(),
+                        count => format!("Valid, {count} flags"),
+                    },
+                ),
+                Err(err) => (palette.danger, err.to_string()),
+            };
+
+            ui.add_space(theme.metrics.gap_sm);
+            ui.label(
+                egui::RichText::new(note)
+                    .font(theme::text_style(theme::size::SMALL))
+                    .color(tone),
+            );
+
+            ui.add_space(theme.metrics.gap_lg);
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+
+                if widgets::Button::new("Copy")
+                    .icon(Icon::Copy)
+                    .tone(widgets::Tone::Neutral)
+                    .show(ui)
+                    .clicked()
+                {
+                    ui.ctx().copy_text(buffer.clone());
+                    *action = Some(Action::Copied);
+                }
+
+                if widgets::Button::new("Paste")
+                    .icon(Icon::Plus)
+                    .tone(widgets::Tone::Neutral)
+                    .show(ui)
+                    .clicked()
+                {
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                }
+
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if widgets::Button::primary("Replace profile")
+                        .enabled(parsed.is_ok())
                         .show(ui)
                         .clicked()
                     {
@@ -216,12 +331,15 @@ fn raw_editor(
                         .show(ui)
                         .clicked()
                     {
-                        *action = Some(Action::CloseRaw);
+                        close = true;
                     }
                 });
             });
-        },
-    );
+        });
+
+    if (close || response.should_close()) && action.is_none() {
+        *action = Some(Action::CloseRaw);
+    }
 }
 
 fn editor(
@@ -241,7 +359,7 @@ fn editor(
     widgets::section(ui, "Profile", None, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
-            let width = ((ui.available_width() - 210.0) * 0.55).clamp(150.0, 300.0);
+            let width = ((ui.available_width() - 210.0) * 0.55).clamp(80.0, 300.0);
             widgets::text_field(ui, &mut ui_state.flag_key, "FFlagExampleName", width);
             widgets::text_field(ui, &mut ui_state.flag_value, "Value", width * 0.6);
             if widgets::Button::new("Add")
@@ -298,7 +416,7 @@ fn editor(
                     }
 
                     ui.vertical(|ui| {
-                        ui.set_width((ui.available_width() - 220.0).max(140.0));
+                        ui.set_width((ui.available_width() - 220.0).max(70.0));
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(&entry.key)
@@ -362,6 +480,17 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
             state.flags.remove(&key);
             state.save_flags();
         }
+        Action::TogglePreset(name) => {
+            if let Some(preset) = flags::preset_named(name) {
+                if state.flags.preset_applied(preset) {
+                    state.flags.remove_preset(preset);
+                } else {
+                    state.flags.apply_preset(preset);
+                }
+                state.save_flags();
+            }
+        }
+        Action::Copied => state.toasts.success("Copied to the clipboard"),
         Action::Toggle(key) => {
             if let Some(entry) = state
                 .flags

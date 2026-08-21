@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-pub const CURRENT_VERSION: u32 = 2;
+pub const CURRENT_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Migration {
@@ -36,6 +36,10 @@ fn steps_for(version: u32) -> Option<(&'static str, Step)> {
             "replaced the named themes with a light and dark mode",
             step_v1_to_v2,
         )),
+        2 => Some((
+            "turned on writing the flag profile on every launch",
+            step_v2_to_v3,
+        )),
         _ => None,
     }
 }
@@ -62,6 +66,15 @@ fn step_v1_to_v2(root: &mut Map<String, Value>) {
     appearance
         .entry("mode")
         .or_insert_with(|| Value::from(mode));
+}
+
+fn step_v2_to_v3(root: &mut Map<String, Value>) {
+    let advanced = root
+        .entry("advanced")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(advanced) = advanced.as_object_mut() {
+        advanced.insert("apply_flag_profile".into(), Value::Bool(true));
+    }
 }
 
 pub fn migrate(value: &mut Value) -> Migration {
@@ -181,6 +194,22 @@ mod tests {
         assert!(matches!(outcome, Migration::Upgraded { from: 0, .. }));
         assert_eq!(value["appearance"]["mode"], json!("Dark"));
         assert_eq!(value["version"], json!(CURRENT_VERSION));
+    }
+
+    #[test]
+    fn writing_flags_on_launch_is_turned_on_when_upgrading() {
+        let mut value = json!({"version": 2, "advanced": {"apply_flag_profile": false}});
+        let outcome = migrate(&mut value);
+
+        assert_eq!(value["advanced"]["apply_flag_profile"], json!(true));
+        assert!(outcome.note().unwrap().contains("flag profile"));
+    }
+
+    #[test]
+    fn upgrading_from_two_keeps_the_rest_of_the_advanced_section() {
+        let mut value = json!({"version": 2, "advanced": {"channel": "zflag"}});
+        migrate(&mut value);
+        assert_eq!(value["advanced"]["channel"], json!("zflag"));
     }
 
     #[test]

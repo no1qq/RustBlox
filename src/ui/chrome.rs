@@ -9,7 +9,7 @@ use super::appicon;
 use super::icons::{self, Icon};
 use super::theme::{self, Theme};
 use super::widgets;
-use super::{Page, UiState};
+use super::{Page, Shell, UiState};
 
 const EDGE: f32 = 5.0;
 
@@ -161,20 +161,18 @@ pub fn title_bar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mu
         let galley =
             ui.painter()
                 .layout_no_wrap(text.clone(), font.clone(), egui::Color32::PLACEHOLDER);
-        let pill = Rect::from_center_size(
-            egui::pos2(rect.center().x, rect.center().y),
-            Vec2::new(galley.size().x + 26.0, 20.0),
-        );
+        let pill = Rect::from_center_size(rect.center(), Vec2::new(galley.size().x + 26.0, 20.0));
         ui.painter().circle_filled(
-            egui::pos2(pill.left() + 8.0, pill.center().y),
+            egui::pos2(pill.left() + 9.0, pill.center().y),
             3.0,
             palette.success,
         );
-        ui.painter().text(
-            egui::pos2(pill.left() + 17.0, pill.center().y),
-            Align2::LEFT_CENTER,
-            text,
-            font,
+        ui.painter().galley(
+            egui::pos2(
+                pill.left() + 18.0,
+                pill.center().y - galley.size().y / 2.0 + theme::optical_nudge(theme::size::MICRO),
+            ),
+            galley,
             palette.text_muted,
         );
     }
@@ -215,9 +213,11 @@ pub fn window_button(ui: &mut Ui, theme: &Theme, icon: Icon, danger: bool) -> eg
     let size = Vec2::new(46.0, theme.metrics.titlebar_h);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
 
-    let hover =
-        ui.ctx()
-            .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.09);
+    let hover = ui.ctx().animate_bool_with_time(
+        response.id.with("hover"),
+        response.hovered(),
+        theme.anim(0.09),
+    );
 
     if hover > 0.0 {
         let fill = if danger {
@@ -245,15 +245,45 @@ pub fn window_button(ui: &mut Ui, theme: &Theme, icon: Icon, danger: bool) -> eg
     response
 }
 
-pub fn sidebar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
+pub const SIDEBAR_COLLAPSED_W: f32 = 56.0;
+
+pub fn sidebar_width(ctx: &egui::Context, theme: &Theme, collapsed: bool) -> f32 {
+    ctx.animate_value_with_time(
+        egui::Id::new("sidebar-width"),
+        if collapsed {
+            SIDEBAR_COLLAPSED_W
+        } else {
+            theme.metrics.sidebar_w
+        },
+        theme.anim(0.13),
+    )
+}
+
+pub fn sidebar_expansion(theme: &Theme, width: f32) -> f32 {
+    let span = (theme.metrics.sidebar_w - SIDEBAR_COLLAPSED_W).max(1.0);
+    ((width - SIDEBAR_COLLAPSED_W) / span).clamp(0.0, 1.0)
+}
+
+pub fn sidebar(
+    ui: &mut Ui,
+    theme: &Theme,
+    state: &mut AppState,
+    ui_state: &mut UiState,
+    expansion: f32,
+) {
     let collapsed = ui_state.sidebar_collapsed;
 
-    if collapse_button(ui, theme, collapsed).clicked() {
+    if collapse_button(ui, theme, expansion).clicked() {
         ui_state.sidebar_collapsed = !collapsed;
     }
     ui.add_space(theme.metrics.gap_sm);
 
-    for page in Page::ALL {
+    let pages = Page::visible(state.settings.advanced_mode);
+    if !pages.contains(&ui_state.page) {
+        ui_state.page = Page::Home;
+    }
+
+    for page in pages {
         let badge = match page {
             Page::Flags if state.flags.active_count() > 0 => {
                 Some(state.flags.active_count().to_string())
@@ -264,26 +294,28 @@ pub fn sidebar(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut 
             ui,
             page.icon(),
             page.label(),
-            ui_state.page == page,
+            ui_state.page == *page,
             badge.as_deref(),
-            collapsed,
+            expansion,
         )
         .clicked()
         {
-            ui_state.page = page;
+            ui_state.page = *page;
         }
         ui.add_space(2.0);
     }
 }
 
-fn collapse_button(ui: &mut Ui, theme: &Theme, collapsed: bool) -> egui::Response {
+fn collapse_button(ui: &mut Ui, theme: &Theme, expansion: f32) -> egui::Response {
     let height = theme.metrics.row_h;
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
 
-    let hover = ui
-        .ctx()
-        .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.1);
+    let hover = ui.ctx().animate_bool_with_time(
+        response.id.with("hover"),
+        response.hovered(),
+        theme.anim(0.1),
+    );
     if hover > 0.0 {
         ui.painter().rect_filled(
             rect,
@@ -292,11 +324,7 @@ fn collapse_button(ui: &mut Ui, theme: &Theme, collapsed: bool) -> egui::Respons
         );
     }
 
-    let x = if collapsed {
-        rect.center().x
-    } else {
-        rect.left() + 22.0
-    };
+    let x = rect.left() + 22.0;
     let tint = theme.palette.text_muted;
     for offset in [-5.0, 0.0, 5.0] {
         ui.painter().hline(
@@ -310,7 +338,7 @@ fn collapse_button(ui: &mut Ui, theme: &Theme, collapsed: bool) -> egui::Respons
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 
-    response.on_hover_text(if collapsed {
+    response.on_hover_text(if expansion < 0.5 {
         "Show labels"
     } else {
         "Hide labels"
@@ -321,6 +349,14 @@ pub fn request_launch(state: &mut AppState, ui_state: &mut UiState, target: Laun
     if state.settings.launch.confirm_before_launch {
         ui_state.confirm = Some(target);
     } else {
-        state.launch(target);
+        begin_launch(state, ui_state, target);
     }
+}
+
+pub fn begin_launch(state: &mut AppState, ui_state: &mut UiState, target: LaunchTarget) {
+    if ui_state.shell != Shell::Splash {
+        ui_state.return_shell = ui_state.shell;
+        ui_state.shell = Shell::Splash;
+    }
+    state.start_launch_flow(target);
 }

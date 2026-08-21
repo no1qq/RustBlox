@@ -15,8 +15,6 @@ pub const PREVIOUS_SUFFIX: &str = ".previous";
 pub enum InstallSource {
     Ours,
     Custom,
-    UserLocal,
-    MachineWide,
 }
 
 impl InstallSource {
@@ -24,17 +22,13 @@ impl InstallSource {
         match self {
             InstallSource::Ours => 0,
             InstallSource::Custom => 1,
-            InstallSource::UserLocal => 2,
-            InstallSource::MachineWide => 3,
         }
     }
 
     pub fn label(&self) -> &'static str {
         match self {
             InstallSource::Ours => "Installed by RustBlox",
-            InstallSource::Custom => "Custom location",
-            InstallSource::UserLocal => "Roblox user install",
-            InstallSource::MachineWide => "Roblox machine install",
+            InstallSource::Custom => "Folder you chose yourself",
         }
     }
 
@@ -42,8 +36,6 @@ impl InstallSource {
         match self {
             InstallSource::Ours => "RustBlox",
             InstallSource::Custom => "Custom",
-            InstallSource::UserLocal => "User",
-            InstallSource::MachineWide => "Machine",
         }
     }
 }

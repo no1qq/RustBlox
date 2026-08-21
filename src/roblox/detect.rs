@@ -57,12 +57,6 @@ struct Candidate {
     source: InstallSource,
 }
 
-fn env_path(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key)
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct ScanOptions {
     pub managed_root: Option<PathBuf>,
@@ -85,26 +79,6 @@ fn candidates(options: &ScanOptions) -> Vec<Candidate> {
             root: custom.clone(),
             source: InstallSource::Custom,
         });
-    }
-
-    if let Some(local) = env_path("LOCALAPPDATA") {
-        list.push(Candidate {
-            root: local.join("Roblox"),
-            source: InstallSource::UserLocal,
-        });
-        list.push(Candidate {
-            root: local.join("Programs").join("Roblox"),
-            source: InstallSource::UserLocal,
-        });
-    }
-
-    for key in ["ProgramFiles(x86)", "ProgramFiles", "ProgramW6432"] {
-        if let Some(root) = env_path(key) {
-            list.push(Candidate {
-                root: root.join("Roblox"),
-                source: InstallSource::MachineWide,
-            });
-        }
     }
 
     list
@@ -298,16 +272,14 @@ mod tests {
     }
 
     #[test]
-    fn our_copy_wins_over_a_newer_roblox_install() {
+    fn our_copy_wins_over_a_newer_one_in_a_chosen_folder() {
         let mut list = [
-            stub(InstallSource::MachineWide, "0.999.0.0"),
-            stub(InstallSource::UserLocal, "0.900.0.0"),
-            stub(InstallSource::Ours, "0.100.0.0"),
             stub(InstallSource::Custom, "0.800.0.0"),
+            stub(InstallSource::Ours, "0.100.0.0"),
         ];
         list.sort_by(preference);
         let order: Vec<_> = list.iter().map(|install| install.source.short()).collect();
-        assert_eq!(order, ["RustBlox", "Custom", "User", "Machine"]);
+        assert_eq!(order, ["RustBlox", "Custom"]);
     }
 
     #[test]
@@ -321,14 +293,20 @@ mod tests {
     }
 
     #[test]
-    fn no_third_party_launcher_folders_are_searched() {
+    fn nothing_outside_our_own_folders_is_searched() {
+        let dir = tempfile::tempdir().unwrap();
+        let detection = scan(&ScanOptions {
+            managed_root: Some(dir.path().to_path_buf()),
+            ..ScanOptions::default()
+        });
+        assert_eq!(detection.searched, vec![dir.path().to_path_buf()]);
+    }
+
+    #[test]
+    fn a_roblox_install_of_its_own_is_never_picked_up() {
         let detection = scan(&ScanOptions::default());
-        for path in &detection.searched {
-            let lowered = path.to_string_lossy().to_lowercase();
-            for name in ["bloxstrap", "fishstrap", "voidstrap", "lunarstrap"] {
-                assert!(!lowered.contains(name), "{} was searched", path.display());
-            }
-        }
+        assert!(detection.searched.is_empty());
+        assert!(detection.installations.is_empty());
     }
 
     #[test]

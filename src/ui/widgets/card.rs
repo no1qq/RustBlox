@@ -20,7 +20,7 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 pub fn nested<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let theme = Theme::get(ui.ctx());
     Frame::new()
-        .fill(theme.palette.surface)
+        .fill(theme.palette.surface_alt)
         .corner_radius(theme.radius_sm())
         .inner_margin(egui::Margin::symmetric(
             theme.metrics.gap_md as i8,
@@ -44,21 +44,9 @@ pub fn section<R>(
         ui.set_width(ui.available_width());
         heading(ui, &theme, title, subtitle);
         ui.add_space(theme.metrics.gap_sm);
-        rule(ui, &theme);
-        ui.add_space(theme.metrics.gap_md);
-        add(ui)
+        card(ui, add)
     })
     .inner
-}
-
-fn rule(ui: &mut Ui, theme: &Theme) {
-    let (rect, _) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter().hline(
-        rect.x_range(),
-        rect.center().y,
-        Stroke::new(1.0, theme.palette.border),
-    );
 }
 
 pub fn heading(ui: &mut Ui, theme: &Theme, title: &str, subtitle: Option<&str>) {
@@ -97,20 +85,24 @@ pub fn page_header(
     let theme = Theme::get(ui.ctx());
     let response = ui
         .horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(
-                    egui::RichText::new(title)
-                        .font(theme::strong(theme::size::DISPLAY))
-                        .color(theme.palette.text),
-                );
-                if !subtitle.is_empty() {
-                    ui.add_space(4.0);
+            let cap = (ui.available_width() * 0.62).max(160.0);
+            ui.scope(|ui| {
+                ui.set_max_width(cap);
+                ui.vertical(|ui| {
                     ui.label(
-                        egui::RichText::new(subtitle)
-                            .font(theme::text_style(theme::size::BODY))
-                            .color(theme.palette.text_muted),
+                        egui::RichText::new(title)
+                            .font(theme::strong(theme::size::DISPLAY))
+                            .color(theme.palette.text),
                     );
-                }
+                    if !subtitle.is_empty() {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(subtitle)
+                                .font(theme::text_style(theme::size::BODY))
+                                .color(theme.palette.text_muted),
+                        );
+                    }
+                });
             });
             ui.with_layout(Layout::right_to_left(Align::Center), actions);
         })
@@ -125,8 +117,8 @@ pub fn setting_row(ui: &mut Ui, title: &str, description: &str, control: impl Fn
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = theme.metrics.gap_md;
         let total = ui.available_width();
-        let control_width = (total * 0.42).clamp(120.0, 260.0);
-        let label_width = (total - control_width - theme.metrics.gap_md).max(120.0);
+        let control_width = (total * 0.42).clamp(110.0, 260.0).min(total * 0.62);
+        let label_width = (total - control_width - theme.metrics.gap_md).max(0.0);
 
         ui.allocate_ui_with_layout(
             Vec2::new(label_width, 0.0),
@@ -160,7 +152,7 @@ pub fn detail_row(ui: &mut Ui, label: &str, value: &str, monospace: bool) {
     let theme = Theme::get(ui.ctx());
     ui.horizontal(|ui| {
         let total = ui.available_width();
-        let label_width = (total * 0.32).clamp(96.0, 200.0);
+        let label_width = (total * 0.32).clamp(80.0, 200.0).min(total * 0.5);
 
         ui.allocate_ui_with_layout(
             Vec2::new(label_width, 0.0),
@@ -180,11 +172,15 @@ pub fn detail_row(ui: &mut Ui, label: &str, value: &str, monospace: bool) {
         } else {
             theme::medium(theme::size::SMALL)
         };
-        ui.label(
-            egui::RichText::new(value)
-                .font(font)
-                .color(theme.palette.text),
-        );
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(value)
+                    .font(font)
+                    .color(theme.palette.text),
+            )
+            .truncate(),
+        )
+        .on_hover_text(value);
     });
 }
 

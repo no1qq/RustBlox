@@ -88,6 +88,14 @@ impl Theme {
         CornerRadius::same(self.metrics.radius_lg)
     }
 
+    pub fn anim(&self, seconds: f32) -> f32 {
+        if self.metrics.animations {
+            seconds
+        } else {
+            0.0
+        }
+    }
+
     pub fn hairline(&self) -> Stroke {
         Stroke::new(1.0, self.palette.border)
     }
@@ -241,6 +249,10 @@ fn metrics_for(density: Density, animations: bool) -> Metrics {
         titlebar_h: 40.0,
         animations,
     }
+}
+
+pub fn optical_nudge(size: f32) -> f32 {
+    size * 0.08
 }
 
 pub fn text_style(size: f32) -> FontId {
@@ -431,7 +443,11 @@ pub fn apply_style(ctx: &egui::Context, theme: &Theme, scale: f32) {
 
     ctx.set_style_of(egui::Theme::Dark, style.clone());
     ctx.set_style_of(egui::Theme::Light, style);
-    ctx.set_pixels_per_point(scale);
+    ctx.tessellation_options_mut(|options| {
+        options.feathering = true;
+        options.feathering_size_in_pixels = 1.0;
+    });
+    ctx.set_zoom_factor(scale);
 }
 
 #[cfg(test)]

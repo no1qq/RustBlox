@@ -9,6 +9,7 @@ use super::migrate::CURRENT_VERSION;
 #[serde(default)]
 pub struct Settings {
     pub version: u32,
+    pub advanced_mode: bool,
     pub launch: LaunchSettings,
     pub appearance: AppearanceSettings,
     pub advanced: AdvancedSettings,
@@ -18,6 +19,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: CURRENT_VERSION,
+            advanced_mode: false,
             launch: LaunchSettings::default(),
             appearance: AppearanceSettings::default(),
             advanced: AdvancedSettings::default(),
@@ -44,6 +46,7 @@ pub struct LaunchSettings {
     pub warn_when_already_running: bool,
     pub hide_window_on_launch: bool,
     pub close_after_launch: bool,
+    pub update_roblox_on_launch: bool,
     pub launch_timeout_secs: u64,
     pub quick_targets: Vec<QuickTarget>,
 }
@@ -56,6 +59,7 @@ impl Default for LaunchSettings {
             warn_when_already_running: true,
             hide_window_on_launch: true,
             close_after_launch: false,
+            update_roblox_on_launch: true,
             launch_timeout_secs: 30,
             quick_targets: Vec::new(),
         }
@@ -298,7 +302,7 @@ impl Default for AdvancedSettings {
             custom_install_root: None,
             pinned_version_folder: None,
             verify_before_launch: true,
-            apply_flag_profile: false,
+            apply_flag_profile: true,
             keep_launch_logs: true,
             extra_player_arguments: String::new(),
         }

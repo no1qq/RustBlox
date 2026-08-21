@@ -36,9 +36,11 @@ pub fn render(ctx: &egui::Context, theme: &Theme, state: &mut AppState) {
                     ToastKind::Error => (palette.danger, Icon::Cross),
                 };
 
-                let entry =
-                    ui.ctx()
-                        .animate_bool_with_time(egui::Id::new(("toast", index)), true, 0.18);
+                let entry = ui.ctx().animate_bool_with_time(
+                    egui::Id::new(("toast", index)),
+                    true,
+                    theme.anim(0.18),
+                );
 
                 let response = egui::Frame::new()
                     .fill(palette.surface)
