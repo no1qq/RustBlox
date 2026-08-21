@@ -7,6 +7,7 @@ mod error;
 mod platform;
 mod roblox;
 mod selfupdate;
+mod shortcuts;
 mod ui;
 mod uninstall;
 mod util;

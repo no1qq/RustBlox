@@ -100,6 +100,14 @@ pub fn run(paths: &Paths, plan: Plan, exe: Option<&Path>) -> Report {
         }
     }
 
+    let shortcuts = crate::shortcuts::remove_all();
+    if !shortcuts.is_empty() {
+        report.removed.push(match shortcuts.len() {
+            1 => "1 shortcut".to_owned(),
+            count => format!("{count} shortcuts"),
+        });
+    }
+
     let keep = if plan.remove_settings {
         drop_directory(paths.config_dir(), "settings", None, &mut report);
         None

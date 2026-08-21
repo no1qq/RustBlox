@@ -37,8 +37,12 @@ a mod, an injector or an account tool.
   outdated configuration file without losing your data.
 - Updates itself from its own GitHub releases, on request rather than silently.
 - Follows the Windows light and dark setting, or stays on whichever you pick.
-- Starts simple. The Flags page, the Installation page and the Advanced settings tab
-  stay hidden until you turn on Advanced options in Settings.
+- Lays your own files over its copy of the client from a mods folder, keeping the
+  original of everything it replaces so taking a mod out really does put it back.
+- Writes desktop and Start menu shortcuts, including ones that launch Roblox or open
+  the settings window directly.
+- Starts simple. The Flags, Mods, Shortcuts and Installation pages and the Advanced
+  settings tab stay hidden until you turn on Advanced options in Settings.
 
 ## Building
 
@@ -215,6 +219,18 @@ well is a choice on that screen, so keeping it means a reinstall starts where yo
 off. Any registered link handler is put back first, and the executable removes itself
 last. A Roblox install that RustBlox did not create is never touched.
 
+## Shortcuts
+
+The Shortcuts page writes real Windows shell links, and there is no setting behind them:
+the file on disk is the state, so one you delete in Explorer shows as gone next time you
+look. Two of them open the small RustBlox menu, from the desktop and from the Start menu,
+and two go straight to the thing itself, `--launch` and `--settings`. The desktop and the
+Start menu folders come from Windows rather than a guessed path, so a redirected or
+OneDrive desktop still gets them. Uninstalling takes them all away.
+
+A shortcut holds the path RustBlox had when it was written, so moving the executable
+means making them again.
+
 ## Mods
 
 A mod is a file that replaces one of the client's own. The mods folder mirrors the
@@ -260,8 +276,8 @@ the flags that used to do those two jobs are refused by the client now.
 Everything needed to install and play Roblox is on the Home, Game, Settings and About
 pages.
 Turning on **Advanced options** in Settings adds the Flags page, the Mods page, the
-Installation page with its download controls and launch link handling, and the Advanced
-settings tab.
+Shortcuts page, the Installation page with its download controls and launch link
+handling, and the Advanced settings tab.
 Turning it back off hides them again without changing anything they configured.
 
 ## Light and dark
@@ -309,6 +325,7 @@ src/
   roblox/         detection, deployment, installer, version housekeeping, launch
                   pipeline, URIs, flags, Roblox's own game settings, mods
   uninstall.rs    removing RustBlox and the data it created
+  shortcuts.rs    desktop and start menu shell links
   ui/             theme, icons, app icon, widgets, pages, chrome, launcher, splash
   util/           filesystem helpers, formatting, version compare, logging
 ```

@@ -242,6 +242,7 @@ pub fn spawn_detached(program: &Path, args: &[String], cwd: Option<&Path>) -> Re
 }
 
 pub mod protocol;
+pub mod shortcut;
 
 pub fn attach_parent_console() {
     use windows_sys::Win32::System::Console::{AllocConsole, AttachConsole, ATTACH_PARENT_PROCESS};

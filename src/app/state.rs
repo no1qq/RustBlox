@@ -16,6 +16,7 @@ use crate::roblox::launch::{GamePlan, LaunchPlan, LaunchTarget, ModPlan};
 use crate::roblox::mods;
 use crate::roblox::process::RobloxStatus;
 use crate::roblox::versions;
+use crate::shortcuts;
 use crate::{log_error, log_info, log_warn};
 
 use super::flow::{FlowStage, FlowStatus, LaunchFlow};
@@ -45,6 +46,7 @@ pub struct AppState {
     pub denied_flags: Vec<String>,
     pub game: Snapshot,
     pub mods: mods::Inventory,
+    pub shortcuts: shortcuts::Present,
     pub session: LaunchSession,
     pub install: InstallSession,
     pub flow: LaunchFlow,
@@ -64,6 +66,7 @@ pub struct AppState {
     denied_checked_at: Option<Instant>,
     game_checked_at: Option<Instant>,
     mods_checked_at: Option<Instant>,
+    shortcuts_checked_at: Option<Instant>,
     state_dirty: bool,
     last_poll: Instant,
     last_theme_probe: Instant,
@@ -123,6 +126,7 @@ impl AppState {
             denied_flags: Vec::new(),
             game: Snapshot::default(),
             mods: mods::Inventory::default(),
+            shortcuts: shortcuts::Present::default(),
             session: LaunchSession::default(),
             install: InstallSession::default(),
             flow: LaunchFlow::default(),
@@ -141,6 +145,7 @@ impl AppState {
             denied_checked_at: None,
             game_checked_at: None,
             mods_checked_at: None,
+            shortcuts_checked_at: None,
             state_dirty: false,
             last_poll: Instant::now() - IDLE_POLL,
             last_theme_probe: Instant::now() - THEME_PROBE,
@@ -889,6 +894,49 @@ impl AppState {
             changes: self.settings.game.changes(),
             lock: self.settings.game.lock,
         })
+    }
+
+    pub fn refresh_shortcuts(&mut self, force: bool) {
+        if !force
+            && self
+                .shortcuts_checked_at
+                .is_some_and(|at| at.elapsed() < DENIED_PROBE)
+        {
+            return;
+        }
+        self.shortcuts_checked_at = Some(Instant::now());
+        self.shortcuts = shortcuts::Present::read();
+    }
+
+    pub fn toggle_shortcut(&mut self, kind: shortcuts::Kind) {
+        let outcome = if kind.exists() {
+            shortcuts::remove(kind).map(|()| None)
+        } else {
+            match self.exe_path.clone() {
+                Some(exe) => shortcuts::create(kind, &exe).map(Some),
+                None => Err(crate::error::Error::invalid(
+                    "RustBlox cannot find its own executable to point at",
+                )),
+            }
+        };
+
+        match outcome {
+            Ok(Some(path)) => {
+                log_info!("wrote the shortcut {}", path.display());
+                self.toasts.success(format!("{} added", kind.label()));
+            }
+            Ok(None) => {
+                log_info!("removed the {} shortcut", kind.label());
+                self.toasts.success(format!("{} removed", kind.label()));
+            }
+            Err(err) => {
+                log_error!("the shortcut could not be written: {err}");
+                self.toasts
+                    .error("That shortcut could not be written", Some(err.to_string()));
+            }
+        }
+
+        self.refresh_shortcuts(true);
     }
 
     pub fn mod_plan(&self) -> ModPlan {

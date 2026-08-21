@@ -8,13 +8,13 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{
     attach_parent_console, file_version, find_processes, free_space, open_path, open_url, protocol,
-    spawn_detached, system_dark_mode,
+    shortcut, spawn_detached, system_dark_mode,
 };
 
 #[cfg(not(windows))]
 pub use fallback::{
     attach_parent_console, file_version, find_processes, free_space, open_path, open_url, protocol,
-    spawn_detached, system_dark_mode,
+    shortcut, spawn_detached, system_dark_mode,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

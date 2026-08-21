@@ -5,6 +5,7 @@ mod home;
 mod installation;
 mod mods;
 mod settings;
+mod shortcuts;
 
 use crate::app::AppState;
 
@@ -17,6 +18,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         Page::Mods => mods::render(ui, state),
         Page::Installation => installation::render(ui, state, ui_state),
         Page::Flags => flags::render(ui, state, ui_state),
+        Page::Shortcuts => shortcuts::render(ui, state),
         Page::Settings => settings::render(ui, state, ui_state),
         Page::About => about::render(ui, state, ui_state),
     }

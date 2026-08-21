@@ -27,6 +27,7 @@ pub enum Page {
     Home,
     Game,
     Mods,
+    Shortcuts,
     Installation,
     Flags,
     Settings,
@@ -34,10 +35,11 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 7] = [
+    pub const ALL: [Page; 8] = [
         Page::Home,
         Page::Game,
         Page::Mods,
+        Page::Shortcuts,
         Page::Installation,
         Page::Flags,
         Page::Settings,
@@ -59,6 +61,7 @@ impl Page {
             Page::Home => "Home",
             Page::Game => "Game",
             Page::Mods => "Mods",
+            Page::Shortcuts => "Shortcuts",
             Page::Installation => "Installation",
             Page::Flags => "Flags",
             Page::Settings => "Settings",
@@ -71,6 +74,7 @@ impl Page {
             Page::Home => icons::Icon::Home,
             Page::Game => icons::Icon::Gauge,
             Page::Mods => icons::Icon::Layers,
+            Page::Shortcuts => icons::Icon::External,
             Page::Installation => icons::Icon::Package,
             Page::Flags => icons::Icon::Flag,
             Page::Settings => icons::Icon::Sliders,
