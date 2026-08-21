@@ -28,10 +28,11 @@ a mod, an injector or an account tool.
   the performance stats overlay, interface transparency, reduced motion, text size,
   mouse sensitivity and VR. These are the settings the client actually honours, and
   RustBlox writes them straight into Roblox's own settings file before each launch.
-- Edits the client flag file (`ClientAppSettings.json`) with validation, presets for the
-  common ones, clipboard import and export, and a timestamped backup when it replaces a
-  file it did not write. There is no save step: a flag you add, change or turn off is
-  written to the client straight away, and written again before the next launch.
+- Edits the client flag file (`ClientAppSettings.json`) with validation, presets grouped
+  by what they do, clipboard import and export, and a timestamped backup when it replaces
+  a file it did not write. There is no save step: a flag you add, change or turn off is
+  written to the client straight away, and written again before the next launch. Flags
+  the client refused on the last run are marked as refused, read from its own log.
 - Keeps settings, state and logs in a per-user folder, and survives a damaged or
   outdated configuration file without losing your data.
 - Updates itself from its own GitHub releases, on request rather than silently.

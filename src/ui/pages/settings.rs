@@ -367,7 +367,7 @@ fn advanced_tab(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state
         widgets::setting_row(
             ui,
             "Write the flag profile on every launch",
-            "On by default. Turn it off and flags only reach the client when you press Write now on the Flags page.",
+            "On by default. Turn it off and flags only reach the client when you press Write to the client now on the Flags page.",
             |ui| {
                 changed |=
                     widgets::toggle(ui, &mut state.settings.advanced.apply_flag_profile).changed();

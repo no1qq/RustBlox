@@ -14,6 +14,9 @@ enum Action {
     Toggle(String),
     Edit { key: String, value: String },
     TogglePreset(&'static str),
+    ToggleApply,
+    TogglePresetFlags,
+    WriteNow,
     AskReset,
     Reset,
     CancelReset,
@@ -59,8 +62,8 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     widgets::banner(
         ui,
         feedback::Tone::Warning,
-        "These are unofficial client settings",
-        "Roblox does not document or support editing this file. Unknown values are ignored, bad values can stop the client from starting, and Roblox may change or remove any of them without notice. RustBlox keeps a timestamped copy of any file it replaces.");
+        "Roblox only applies the flags it has allowed",
+        "The client reads this whole file and then throws out every override that is not on its own list. Nothing any launcher writes can change that, so treat a flag that does nothing as Roblox saying no. Unknown names are ignored, bad values can stop the client starting, and RustBlox keeps a timestamped copy of any file it replaces.");
     ui.add_space(theme.metrics.gap_lg);
 
     let refused = state.denied_active_flags();
@@ -68,14 +71,17 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         widgets::banner(
             ui,
             feedback::Tone::Danger,
-            "Roblox refused some of these flags",
+            "Roblox refused some of these on the last launch",
             &format!(
-                "The last client that started read the file and then ignored {}. Roblox only accepts a short list of local overrides and rejects the rest on its own side, so nothing RustBlox writes can turn these on.",
+                "The client read the file and then ignored {}. Anything marked refused below came back the same way.",
                 refused.join(", ")
             ),
         );
         ui.add_space(theme.metrics.gap_lg);
     }
+
+    applying(ui, &theme, state, &mut action);
+    ui.add_space(theme.metrics.gap_lg);
 
     presets(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
@@ -91,49 +97,109 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     }
 }
 
+fn applying(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
+    let mut applied = state.settings.advanced.apply_flag_profile;
+    let file = state
+        .client_flag_file()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "no Roblox is installed yet".into());
+
+    widgets::section(
+        ui,
+        "How they reach the client",
+        Some("Roblox wipes the version folder when it updates, so the profile is kept here and written again."),
+        |ui| {
+            widgets::setting_row(
+                ui,
+                "Write them on every launch",
+                "Off means the client keeps whatever it has until you write them yourself.",
+                |ui| {
+                    if widgets::toggle(ui, &mut applied).changed() {
+                        *action = Some(Action::ToggleApply);
+                    }
+                },
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::detail_row(ui, "Client file", &file, true);
+
+            ui.add_space(theme.metrics.gap_md);
+            ui.horizontal(|ui| {
+                if widgets::Button::new("Write to the client now")
+                    .icon(Icon::Check)
+                    .size(widgets::Size::Small)
+                    .enabled(state.detection.active().is_some())
+                    .show(ui)
+                    .clicked()
+                {
+                    *action = Some(Action::WriteNow);
+                }
+                ui.label(
+                    egui::RichText::new(format!("{} active", state.flags.active_count()))
+                        .font(theme::text_style(theme::size::MICRO))
+                        .color(theme.palette.text_faint),
+                );
+            });
+        },
+    );
+}
+
 fn presets(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
     widgets::section(
         ui,
         "Presets",
-        Some("Each one adds or removes the handful of flags it needs."),
+        Some("Each one writes the handful of flags it needs and clears them again when you turn it off."),
         |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing =
-                    egui::vec2(theme.metrics.gap_sm, theme.metrics.gap_sm);
-
-                for preset in &flags::PRESETS {
-                    let on = state.flags.preset_applied(preset);
-                    let refused = preset.pairs.iter().any(|(key, _)| {
-                        state
-                            .denied_flags
-                            .iter()
-                            .any(|denied| denied.eq_ignore_ascii_case(key))
-                    });
-                    let response = widgets::Button::new(preset.name)
-                        .icon(if on { Icon::Check } else { Icon::Plus })
-                        .tone(if refused && on {
-                            widgets::Tone::Danger
-                        } else if on {
-                            widgets::Tone::Primary
-                        } else {
-                            widgets::Tone::Neutral
-                        })
-                        .size(widgets::Size::Small)
-                        .show(ui)
-                        .on_hover_text(if refused {
-                            format!(
-                                "{} Roblox refused this one on the last launch.",
-                                preset.detail
-                            )
-                        } else {
-                            preset.detail.to_owned()
-                        });
-
-                    if response.clicked() {
-                        *action = Some(Action::TogglePreset(preset.name));
-                    }
+            for (index, group) in flags::GROUPS.iter().enumerate() {
+                if index > 0 {
+                    ui.add_space(theme.metrics.gap_md);
                 }
-            });
+
+                ui.label(
+                    egui::RichText::new(*group)
+                        .font(theme::medium(theme::size::SMALL))
+                        .color(theme.palette.text_muted),
+                );
+                ui.add_space(theme.metrics.gap_sm);
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing =
+                        egui::vec2(theme.metrics.gap_sm, theme.metrics.gap_sm);
+
+                    for preset in flags::presets_in(group) {
+                        let on = state.flags.preset_applied(preset);
+                        let refused = preset.pairs.iter().any(|(key, _)| {
+                            state
+                                .denied_flags
+                                .iter()
+                                .any(|denied| denied.eq_ignore_ascii_case(key))
+                        });
+                        let response = widgets::Button::new(preset.name)
+                            .icon(if on { Icon::Check } else { Icon::Plus })
+                            .tone(if refused && on {
+                                widgets::Tone::Danger
+                            } else if on {
+                                widgets::Tone::Primary
+                            } else {
+                                widgets::Tone::Neutral
+                            })
+                            .size(widgets::Size::Small)
+                            .show(ui)
+                            .on_hover_text(if refused {
+                                format!(
+                                    "{} Roblox refused this one on the last launch.",
+                                    preset.detail
+                                )
+                            } else {
+                                preset.detail.to_owned()
+                            });
+
+                        if response.clicked() {
+                            *action = Some(Action::TogglePreset(preset.name));
+                        }
+                    }
+                });
+            }
         },
     );
 }
@@ -337,111 +403,167 @@ fn editor(
     let refused = state.denied_active_flags();
     let filter = ui_state.flag_filter.to_lowercase();
     let entries = state.flags.entries.clone();
+    let from_presets = entries
+        .iter()
+        .filter(|entry| flags::from_a_preset(&entry.key))
+        .count();
     let visible: Vec<_> = entries
         .iter()
+        .filter(|entry| ui_state.show_preset_flags || !flags::from_a_preset(&entry.key))
         .filter(|entry| filter.is_empty() || entry.key.to_lowercase().contains(&filter))
         .collect();
 
-    widgets::section(ui, "Profile", None, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
-            let width = ((ui.available_width() - 210.0) * 0.55).clamp(80.0, 300.0);
-            widgets::text_field(ui, &mut ui_state.flag_key, "FFlagExampleName", width);
-            widgets::text_field(ui, &mut ui_state.flag_value, "Value", width * 0.6);
-            if widgets::Button::new("Add")
-                .icon(Icon::Plus)
-                .show(ui)
-                .clicked()
-            {
-                *action = Some(Action::Add);
-            }
-        });
+    widgets::section(
+        ui,
+        "Profile",
+        Some("Every flag RustBlox will write, whichever way it got here."),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+                let width = ((ui.available_width() - 210.0) * 0.55).clamp(80.0, 300.0);
+                widgets::text_field(ui, &mut ui_state.flag_key, "FFlagExampleName", width);
+                widgets::text_field(ui, &mut ui_state.flag_value, "Value", width * 0.6);
+                if widgets::Button::new("Add")
+                    .icon(Icon::Plus)
+                    .show(ui)
+                    .clicked()
+                {
+                    *action = Some(Action::Add);
+                }
+            });
 
-        if let Some(error) = &ui_state.flag_error {
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(error)
-                    .font(theme::text_style(theme::size::SMALL))
-                    .color(theme.palette.danger),
-            );
-        }
-
-        ui.add_space(theme.metrics.gap_md);
-
-        if entries.is_empty() {
-            widgets::nested(ui, |ui| {
+            if let Some(error) = &ui_state.flag_error {
+                ui.add_space(6.0);
                 ui.label(
-                    egui::RichText::new("The profile is empty. Roblox will use its own defaults.")
+                    egui::RichText::new(error)
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(theme.palette.danger),
+                );
+            }
+
+            ui.add_space(theme.metrics.gap_md);
+
+            if entries.is_empty() {
+                widgets::nested(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(
+                            "The profile is empty. Roblox will use its own defaults.",
+                        )
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(theme.palette.text_muted),
+                    );
+                });
+                return;
+            }
+
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+                if entries.len() > 6 {
+                    widgets::text_field(ui, &mut ui_state.flag_filter, "Filter by name", 220.0);
+                }
+
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if from_presets > 0 {
+                        let mut shown = ui_state.show_preset_flags;
+                        if widgets::toggle(ui, &mut shown).changed() {
+                            *action = Some(Action::TogglePresetFlags);
+                        }
+                        ui.label(
+                            egui::RichText::new(format!("Show the {from_presets} from presets"))
+                                .font(theme::text_style(theme::size::SMALL))
+                                .color(theme.palette.text_muted),
+                        );
+                    }
+                });
+            });
+
+            ui.add_space(theme.metrics.gap_sm);
+
+            if visible.is_empty() {
+                ui.label(
+                    egui::RichText::new("Nothing to show with those two filters on.")
                         .font(theme::text_style(theme::size::SMALL))
                         .color(theme.palette.text_muted),
                 );
-            });
-            return;
-        }
+                return;
+            }
 
-        if entries.len() > 6 {
-            widgets::text_field(ui, &mut ui_state.flag_filter, "Filter flags", 240.0);
-            ui.add_space(theme.metrics.gap_sm);
-        }
+            columns(ui, theme);
 
-        if visible.is_empty() {
-            ui.label(
-                egui::RichText::new("No flags match that filter.")
-                    .font(theme::text_style(theme::size::SMALL))
-                    .color(theme.palette.text_muted),
-            );
-            return;
-        }
+            for entry in visible {
+                widgets::nested(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let mut enabled = entry.enabled;
+                        if widgets::toggle(ui, &mut enabled).changed() {
+                            *action = Some(Action::Toggle(entry.key.clone()));
+                        }
 
-        for entry in visible {
-            widgets::nested(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let mut enabled = entry.enabled;
-                    if widgets::toggle(ui, &mut enabled).changed() {
-                        *action = Some(Action::Toggle(entry.key.clone()));
-                    }
+                        ui.vertical(|ui| {
+                            ui.set_width((ui.available_width() - 220.0).max(70.0));
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(&entry.key)
+                                        .font(egui::FontId::new(
+                                            theme::size::SMALL,
+                                            egui::FontFamily::Monospace,
+                                        ))
+                                        .color(if entry.enabled {
+                                            theme.palette.text
+                                        } else {
+                                            theme.palette.text_faint
+                                        }),
+                                );
+                                if refused.iter().any(|key| key == &entry.key) {
+                                    widgets::badge(ui, "refused by Roblox", feedback::Tone::Danger);
+                                } else if flags::looks_unusual(&entry.key) {
+                                    widgets::badge(ui, "unknown prefix", feedback::Tone::Warning);
+                                } else if flags::from_a_preset(&entry.key) {
+                                    widgets::badge(ui, "preset", feedback::Tone::Neutral);
+                                }
+                            });
+                        });
 
-                    ui.vertical(|ui| {
-                        ui.set_width((ui.available_width() - 220.0).max(70.0));
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(&entry.key)
-                                    .font(egui::FontId::new(
-                                        theme::size::SMALL,
-                                        egui::FontFamily::Monospace,
-                                    ))
-                                    .color(if entry.enabled {
-                                        theme.palette.text
-                                    } else {
-                                        theme.palette.text_faint
-                                    }),
-                            );
-                            if refused.iter().any(|key| key == &entry.key) {
-                                widgets::badge(ui, "refused by Roblox", feedback::Tone::Danger);
-                            } else if flags::looks_unusual(&entry.key) {
-                                widgets::badge(ui, "unknown prefix", feedback::Tone::Warning);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if widgets::icon_button(ui, Icon::Trash, "Remove", true).clicked() {
+                                *action = Some(Action::Remove(entry.key.clone()));
+                            }
+
+                            let mut buffer = entry.value.display();
+                            if widgets::text_field(ui, &mut buffer, "value", 130.0).changed() {
+                                *action = Some(Action::Edit {
+                                    key: entry.key.clone(),
+                                    value: buffer,
+                                });
                             }
                         });
                     });
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if widgets::icon_button(ui, Icon::Trash, "Remove", true).clicked() {
-                            *action = Some(Action::Remove(entry.key.clone()));
-                        }
-
-                        let mut buffer = entry.value.display();
-                        if widgets::text_field(ui, &mut buffer, "value", 130.0).changed() {
-                            *action = Some(Action::Edit {
-                                key: entry.key.clone(),
-                                value: buffer,
-                            });
-                        }
-                    });
                 });
-            });
-            ui.add_space(6.0);
-        }
+                ui.add_space(6.0);
+            }
+        },
+    );
+}
+
+fn columns(ui: &mut egui::Ui, theme: &Theme) {
+    let label = |ui: &mut egui::Ui, text: &str| {
+        ui.label(
+            egui::RichText::new(text)
+                .font(theme::medium(theme::size::MICRO))
+                .color(theme.palette.text_faint),
+        );
+    };
+
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        label(ui, "ON");
+        ui.add_space(theme.metrics.gap_lg);
+        label(ui, "NAME");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.add_space(38.0);
+            label(ui, "VALUE");
+        });
     });
+    ui.add_space(theme.metrics.gap_xs);
 }
 
 fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
@@ -478,6 +600,14 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
                 state.commit_flags();
             }
         }
+        Action::ToggleApply => {
+            state.settings.advanced.apply_flag_profile =
+                !state.settings.advanced.apply_flag_profile;
+            state.mark_settings_dirty();
+            state.flush_settings();
+        }
+        Action::TogglePresetFlags => ui_state.show_preset_flags = !ui_state.show_preset_flags,
+        Action::WriteNow => state.write_flags_now(),
         Action::Copied => state.toasts.success("Copied to the clipboard"),
         Action::Toggle(key) => {
             if let Some(entry) = state

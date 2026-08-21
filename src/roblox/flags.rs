@@ -155,13 +155,21 @@ impl FlagProfile {
 }
 
 pub struct Preset {
+    pub group: &'static str,
     pub name: &'static str,
     pub detail: &'static str,
     pub pairs: &'static [(&'static str, &'static str)],
 }
 
-pub const PRESETS: [Preset; 4] = [
+pub const GROUPS: [&str; 3] = [RENDERER, LIGHTING, PICTURE];
+
+const RENDERER: &str = "Renderer";
+const LIGHTING: &str = "Lighting";
+const PICTURE: &str = "Picture";
+
+pub const PRESETS: [Preset; 9] = [
     Preset {
+        group: RENDERER,
         name: "Prefer Vulkan",
         detail: "Asks the client to render through Vulkan and turns the other two off.",
         pairs: &[
@@ -171,6 +179,7 @@ pub const PRESETS: [Preset; 4] = [
         ],
     },
     Preset {
+        group: RENDERER,
         name: "Prefer Direct3D 11",
         detail: "Asks the client to render through Direct3D 11 and turns the other two off.",
         pairs: &[
@@ -180,6 +189,7 @@ pub const PRESETS: [Preset; 4] = [
         ],
     },
     Preset {
+        group: RENDERER,
         name: "Prefer OpenGL",
         detail: "Asks the client to render through OpenGL and turns the other two off.",
         pairs: &[
@@ -189,14 +199,70 @@ pub const PRESETS: [Preset; 4] = [
         ],
     },
     Preset {
+        group: LIGHTING,
+        name: "Voxel lighting",
+        detail: "Forces the oldest and cheapest lighting technology on every place.",
+        pairs: &[
+            ("FFlagDebugForceFutureIsBrightPhase1", "true"),
+            ("FFlagDebugForceFutureIsBrightPhase2", "false"),
+            ("FFlagDebugForceFutureIsBrightPhase3", "false"),
+        ],
+    },
+    Preset {
+        group: LIGHTING,
+        name: "Shadow map lighting",
+        detail: "Forces the middle lighting technology on every place.",
+        pairs: &[
+            ("FFlagDebugForceFutureIsBrightPhase2", "true"),
+            ("FFlagDebugForceFutureIsBrightPhase1", "false"),
+            ("FFlagDebugForceFutureIsBrightPhase3", "false"),
+        ],
+    },
+    Preset {
+        group: LIGHTING,
         name: "Future lighting",
         detail: "Forces the newest lighting technology instead of whatever the place picked.",
-        pairs: &[("FFlagDebugForceFutureIsBrightPhase3", "true")],
+        pairs: &[
+            ("FFlagDebugForceFutureIsBrightPhase3", "true"),
+            ("FFlagDebugForceFutureIsBrightPhase1", "false"),
+            ("FFlagDebugForceFutureIsBrightPhase2", "false"),
+        ],
+    },
+    Preset {
+        group: PICTURE,
+        name: "Four times anti-aliasing",
+        detail: "Asks for four MSAA samples rather than whatever the quality level picked.",
+        pairs: &[("FIntDebugForceMSAASamples", "4")],
+    },
+    Preset {
+        group: PICTURE,
+        name: "No anti-aliasing",
+        detail: "Drops MSAA to a single sample, which is the cheapest the client will go.",
+        pairs: &[("FIntDebugForceMSAASamples", "1")],
+    },
+    Preset {
+        group: PICTURE,
+        name: "Ignore display scaling",
+        detail: "Stops the client rendering at a lower resolution when Windows is scaled above 100 percent.",
+        pairs: &[("DFFlagDisableDPIScale", "true")],
     },
 ];
 
 pub fn preset_named(name: &str) -> Option<&'static Preset> {
     PRESETS.iter().find(|preset| preset.name == name)
+}
+
+pub fn presets_in(group: &str) -> impl Iterator<Item = &'static Preset> + '_ {
+    PRESETS.iter().filter(move |preset| preset.group == group)
+}
+
+pub fn from_a_preset(key: &str) -> bool {
+    PRESETS.iter().any(|preset| {
+        preset
+            .pairs
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case(key))
+    })
 }
 
 impl FlagProfile {
@@ -497,8 +563,51 @@ mod tests {
     }
 
     #[test]
+    fn the_lighting_presets_turn_each_other_off() {
+        let mut profile = FlagProfile::default();
+        profile.apply_preset(preset_named("Voxel lighting").unwrap());
+        profile.apply_preset(preset_named("Future lighting").unwrap());
+
+        assert!(profile.preset_applied(preset_named("Future lighting").unwrap()));
+        assert!(!profile.preset_applied(preset_named("Voxel lighting").unwrap()));
+    }
+
+    #[test]
+    fn every_preset_belongs_to_a_group_that_is_listed() {
+        for preset in &PRESETS {
+            assert!(
+                GROUPS.contains(&preset.group),
+                "{} is in the unlisted group {}",
+                preset.name,
+                preset.group
+            );
+        }
+        for group in GROUPS {
+            assert!(presets_in(group).count() > 0, "{group} has no presets");
+        }
+    }
+
+    #[test]
+    fn preset_names_are_unique() {
+        for preset in &PRESETS {
+            let count = PRESETS
+                .iter()
+                .filter(|other| other.name == preset.name)
+                .count();
+            assert_eq!(count, 1, "{} appears more than once", preset.name);
+        }
+    }
+
+    #[test]
+    fn a_flag_is_recognised_as_belonging_to_a_preset() {
+        assert!(from_a_preset("FFlagDebugGraphicsPreferVulkan"));
+        assert!(from_a_preset("fflagdebuggraphicsprefervulkan"));
+        assert!(!from_a_preset("FFlagSomethingOfMyOwn"));
+    }
+
+    #[test]
     fn removing_a_preset_takes_its_flags_with_it() {
-        let preset = preset_named("Future lighting").unwrap();
+        let preset = preset_named("Ignore display scaling").unwrap();
         let mut profile = FlagProfile::default();
         profile.apply_preset(preset);
         profile.remove_preset(preset);

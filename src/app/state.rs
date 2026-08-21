@@ -992,30 +992,56 @@ impl AppState {
             return;
         }
 
-        self.write_flags_to_client();
+        self.write_flags_to_client(false);
     }
 
-    fn write_flags_to_client(&mut self) {
-        if !self.settings.advanced.apply_flag_profile {
+    pub fn write_flags_now(&mut self) {
+        self.mark_flags_dirty();
+        self.flush_flags();
+        self.write_flags_to_client(true);
+    }
+
+    fn write_flags_to_client(&mut self, forced: bool) {
+        if !forced && !self.settings.advanced.apply_flag_profile {
             return;
         }
         let Some(install) = self.detection.active().cloned() else {
+            if forced {
+                self.toasts
+                    .error("No Roblox to write to", Some("Install it first.".into()));
+            }
             return;
         };
 
         match flags::apply_to(&install, &self.flags, &self.store.paths().backup_dir()) {
-            Ok(report) if report.unchanged => {}
-            Ok(report) => log_info!(
-                "wrote {} flags to {}",
-                report.count,
-                report.written.display()
-            ),
+            Ok(report) if report.unchanged => {
+                if forced {
+                    self.toasts.success("The client file already matches");
+                }
+            }
+            Ok(report) => {
+                log_info!(
+                    "wrote {} flags to {}",
+                    report.count,
+                    report.written.display()
+                );
+                if forced {
+                    self.toasts
+                        .success(format!("Wrote {} flags to the client", report.count));
+                }
+            }
             Err(err) => {
                 log_error!("flags could not be applied: {err}");
                 self.toasts
                     .error("Flags could not be applied", Some(err.to_string()));
             }
         }
+    }
+
+    pub fn client_flag_file(&self) -> Option<PathBuf> {
+        self.detection
+            .active()
+            .map(|install| install.client_settings_file())
     }
 
     pub fn reset_flags(&mut self) {
