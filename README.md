@@ -41,6 +41,7 @@ a mod, an injector or an account tool.
   original of everything it replaces so taking a mod out really does put it back.
 - Writes desktop and Start menu shortcuts, including ones that launch Roblox or open
   the settings window directly.
+- Starts other programs of your choosing whenever Roblox starts.
 - Starts simple. The Flags, Mods, Shortcuts and Installation pages and the Advanced
   settings tab stay hidden until you turn on Advanced options in Settings.
 
@@ -218,6 +219,17 @@ logs, its saved state and its flag profile. Removing `%APPDATA%\RustBlox\config`
 well is a choice on that screen, so keeping it means a reinstall starts where you left
 off. Any registered link handler is put back first, and the executable removes itself
 last. A Roblox install that RustBlox did not create is never touched.
+
+## Programs alongside Roblox
+
+The Launch tab in Settings takes a list of programs to start whenever Roblox starts: a
+recorder, an overlay, a controller tool, whatever you already use. Each one has a name,
+a path and its own arguments, and can be switched off without being deleted.
+
+They are started once the client is up, and one that fails to start is written to the
+log rather than treated as a failed launch. RustBlox closes itself as soon as Roblox is
+running, so it never closes them for you again. That is the honest limit of the feature:
+it starts them, it does not babysit them.
 
 ## Shortcuts
 

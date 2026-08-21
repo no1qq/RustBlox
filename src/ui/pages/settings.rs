@@ -1,7 +1,7 @@
 use egui::{Align, Layout};
 
 use crate::app::AppState;
-use crate::config::{Accent, AppearanceSettings, Density, StartupTarget, ThemeMode};
+use crate::config::{Accent, AppearanceSettings, Density, Integration, StartupTarget, ThemeMode};
 
 use crate::ui::icons::Icon;
 use crate::ui::theme::{self, Theme};
@@ -217,9 +217,133 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
         });
     }
 
+    if advanced {
+        ui.add_space(theme.metrics.gap_lg);
+        changed |= programs(ui, theme, state);
+    }
+
     if changed {
         state.mark_settings_dirty();
     }
+}
+
+fn programs(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
+    let mut changed = false;
+    let mut remove = None;
+    let mut add = false;
+    let mut browse = None;
+    let full = state.settings.launch.integrations.len() >= Integration::MAX;
+
+    widgets::section(
+        ui,
+        "Programs to start with Roblox",
+        Some("Started once the client is, and left running. RustBlox closes itself after a launch, so it never closes them for you."),
+        |ui| {
+            if state.settings.launch.integrations.is_empty() {
+                widgets::nested(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(
+                            "Nothing yet. Add a program and it starts whenever Roblox does.",
+                        )
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(theme.palette.text_muted),
+                    );
+                });
+                ui.add_space(theme.metrics.gap_md);
+            }
+
+            for (index, entry) in state.settings.launch.integrations.iter_mut().enumerate() {
+                widgets::nested(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        changed |= widgets::toggle(ui, &mut entry.enabled).changed();
+                        ui.add_space(theme.metrics.gap_xs);
+                        let width = ((ui.available_width() - 190.0) * 0.42).clamp(70.0, 190.0);
+                        changed |= widgets::text_field(ui, &mut entry.name, "Name", width).changed();
+                        changed |= widgets::text_field(
+                            ui,
+                            &mut entry.arguments,
+                            "Arguments",
+                            width * 0.9,
+                        )
+                        .changed();
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if widgets::icon_button(ui, Icon::Trash, "Remove", true).clicked() {
+                                remove = Some(index);
+                            }
+                            if widgets::Button::new("Choose")
+                                .size(widgets::Size::Small)
+                                .show(ui)
+                                .clicked()
+                            {
+                                browse = Some(index);
+                            }
+                        });
+                    });
+
+                    ui.add_space(4.0);
+                    let path = if entry.program.as_os_str().is_empty() {
+                        "no program chosen yet".to_owned()
+                    } else {
+                        entry.program.display().to_string()
+                    };
+                    ui.label(
+                        egui::RichText::new(path)
+                            .font(egui::FontId::new(
+                                theme::size::MICRO,
+                                egui::FontFamily::Monospace,
+                            ))
+                            .color(theme.palette.text_faint),
+                    );
+                });
+                ui.add_space(theme.metrics.gap_sm);
+            }
+
+            ui.horizontal(|ui| {
+                add = widgets::Button::new("Add a program")
+                    .icon(Icon::Plus)
+                    .size(widgets::Size::Small)
+                    .enabled(!full)
+                    .show(ui)
+                    .clicked();
+                if full {
+                    ui.label(
+                        egui::RichText::new(format!("{} is the limit.", Integration::MAX))
+                            .font(theme::text_style(theme::size::SMALL))
+                            .color(theme.palette.text_faint),
+                    );
+                }
+            });
+        },
+    );
+
+    if let Some(index) = browse {
+        if let Some(path) = state.pick_program() {
+            if let Some(entry) = state.settings.launch.integrations.get_mut(index) {
+                if entry.name.trim().is_empty() {
+                    entry.name = path
+                        .file_stem()
+                        .map(|stem| stem.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                }
+                entry.program = path;
+                changed = true;
+            }
+        }
+    }
+    if let Some(index) = remove {
+        state.settings.launch.integrations.remove(index);
+        changed = true;
+    }
+    if add {
+        state.settings.launch.integrations.push(Integration {
+            enabled: true,
+            ..Integration::default()
+        });
+        changed = true;
+    }
+
+    changed
 }
 
 fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
