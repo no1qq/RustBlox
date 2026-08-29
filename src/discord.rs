@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
 
-pub const DEFAULT_APPLICATION_ID: &str = "1359984803008479304";
+pub const DEFAULT_APPLICATION_ID: &str = "1479505409331953827";
 
 const PIPES: u8 = 10;
 const MAX_FRAME: u32 = 64 * 1024;

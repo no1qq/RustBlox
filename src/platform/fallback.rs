@@ -98,3 +98,7 @@ pub fn terminate_threat_pid(_pid: u32) -> bool {
 pub fn clean_roblox_dir_proxies(_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     Vec::new()
 }
+
+pub fn show_tray_icon(_tooltip: &str) {}
+
+pub fn hide_tray_icon() {}

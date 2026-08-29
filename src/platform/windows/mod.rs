@@ -245,7 +245,9 @@ pub mod protocol;
 pub mod security;
 pub mod shortcut;
 
-pub use security::{clean_roblox_dir_proxies, scan_security, terminate_threat_pid};
+pub use security::{
+    clean_roblox_dir_proxies, hide_tray_icon, scan_security, show_tray_icon, terminate_threat_pid,
+};
 
 pub fn attach_parent_console() {
     use windows_sys::Win32::System::Console::{AllocConsole, AttachConsole, ATTACH_PARENT_PROCESS};

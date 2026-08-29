@@ -8,8 +8,6 @@ use crate::ui::theme::{self, Theme};
 use crate::ui::widgets::{self, feedback, Segmented};
 use crate::ui::{SettingsTab, UiState};
 
-const SCALE_STEP: f32 = 0.05;
-
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
     let advanced = state.settings.advanced_mode;
@@ -33,7 +31,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     match ui_state.settings_tab {
         SettingsTab::General => general(ui, &theme, state),
         SettingsTab::Launch => launch(ui, &theme, state),
-        SettingsTab::Appearance => appearance(ui, &theme, state),
+        SettingsTab::Appearance => appearance(ui, &theme, state, ui_state),
         SettingsTab::Advanced => advanced_tab(ui, &theme, state, ui_state),
     }
 }
@@ -231,30 +229,15 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
 
         widgets::section(
             ui,
-            "Security & Anti-Cheat",
-            Some("Monitors Roblox in the background when launched from RustBlox."),
+            "TheWatcher Anti-Cheat",
+            Some("Active in the background when Roblox runs from RustBlox."),
             |ui| {
                 widgets::setting_row(
                     ui,
-                    "Anti-cheat protection",
-                    "Flags external tools, DLL injection, and script executors while Roblox runs.",
+                    "Protection status",
+                    "Enforced and active. Flags external cheat tools, DLL injection, and script executors while Roblox runs.",
                     |ui| {
-                        changed |=
-                            widgets::toggle(ui, &mut state.settings.security.anticheat_enabled)
-                                .changed();
-                    },
-                );
-                ui.add_space(theme.metrics.gap_md);
-                widgets::setting_row(
-                    ui,
-                    "Auto-terminate cheat processes",
-                    "Automatically closes detected cheat tools and injectors when flagged.",
-                    |ui| {
-                        changed |= widgets::toggle(
-                            ui,
-                            &mut state.settings.security.auto_terminate_threats,
-                        )
-                        .changed();
+                        widgets::badge(ui, "Protected", feedback::Tone::Success);
                     },
                 );
             },
@@ -305,21 +288,23 @@ fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
                 "Application ID",
                 "The Discord application whose name shows as the game. RustBlox comes with one, so this only needs changing if you would rather use your own.",
                 |ui| {
-                    if built_in {
-                        widgets::badge(ui, "built in", feedback::Tone::Neutral);
-                    } else if widgets::Button::new("Use the built in one")
-                        .tone(widgets::Tone::Ghost)
-                        .size(widgets::Size::Small)
-                        .show(ui)
-                        .clicked()
+                    if !built_in
+                        && widgets::Button::new("Reset")
+                            .tone(widgets::Tone::Ghost)
+                            .size(widgets::Size::Small)
+                            .show(ui)
+                            .on_hover_text("Reset to the built-in Application ID")
+                            .clicked()
                     {
                         reset_id = true;
+                    } else if built_in {
+                        widgets::badge(ui, "built in", feedback::Tone::Neutral);
                     }
                     if widgets::text_field(
                         ui,
                         &mut state.settings.discord.application_id,
                         "18 digits",
-                        170.0,
+                        140.0,
                     )
                     .changed()
                     {
@@ -513,7 +498,7 @@ fn programs(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
     changed
 }
 
-fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
+fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
     let mut changed = false;
 
     let mode = state.settings.appearance.mode;
@@ -570,21 +555,33 @@ fn appearance(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
         });
 
         ui.add_space(theme.metrics.gap_md);
+        let buffer = ui_state
+            .scale_buffer
+            .get_or_insert_with(|| format!("{:.0}", state.settings.appearance.ui_scale * 100.0));
         widgets::setting_row(
             ui,
             "Interface scale",
-            &format!(
-                "{:.0}% of the default size.",
-                state.settings.appearance.ui_scale * 100.0
-            ),
+            "Between 50% and 200% of the default size.",
             |ui| {
-                changed |= widgets::slider(
-                    ui,
-                    &mut state.settings.appearance.ui_scale,
-                    AppearanceSettings::MIN_SCALE..=AppearanceSettings::MAX_SCALE,
-                    SCALE_STEP,
-                )
-                .changed();
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = theme.metrics.gap_xs;
+                    if widgets::text_field(ui, buffer, "100", 65.0).changed() {
+                        let cleaned = buffer.trim().trim_end_matches('%').trim();
+                        if let Ok(val) = cleaned.parse::<f32>() {
+                            let clamped = (val / 100.0).clamp(
+                                AppearanceSettings::MIN_SCALE,
+                                AppearanceSettings::MAX_SCALE,
+                            );
+                            state.settings.appearance.ui_scale = clamped;
+                            changed = true;
+                        }
+                    }
+                    ui.label(
+                        egui::RichText::new("%")
+                            .font(theme::medium(theme::size::BODY))
+                            .color(theme.palette.text_muted),
+                    );
+                });
             },
         );
 

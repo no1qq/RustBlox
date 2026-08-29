@@ -518,13 +518,11 @@ impl AppState {
 
         self.last_poll = Instant::now() - BUSY_POLL;
 
-        if self.session.phase == Phase::Succeeded && self.settings.security.anticheat_enabled {
+        if self.session.phase == Phase::Succeeded {
             if let Some(pid) = self.session.report.as_ref().and_then(|r| r.pid) {
                 if let Some(install) = self.detection.active() {
                     let install_dir = install.version_dir.clone();
-                    let auto_terminate = self.settings.security.auto_terminate_threats;
-                    self.security
-                        .start(pid, install_dir, auto_terminate, |_threat| {});
+                    self.security.start(pid, install_dir, true, |_threat| {});
                 }
             }
         }
@@ -695,7 +693,7 @@ impl AppState {
                     super::presence::Status::On => {
                         format!("{}, and Discord is being told.", self.activity.summary())
                     }
-                    _ if self.security.is_running() => "Anti-cheat protection active.".into(),
+                    _ if self.security.is_running() => "TheWatcher is active.".into(),
                     other => other.label(),
                 },
                 progress: Some(1.0),
@@ -1052,7 +1050,7 @@ impl AppState {
     }
 
     pub fn stays_open_after_launch(&self) -> bool {
-        self.settings.discord.is_usable() || self.settings.security.anticheat_enabled
+        true
     }
 
     pub fn left_the_client(&self) -> bool {

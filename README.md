@@ -7,7 +7,7 @@ RustBlox installs its own isolated copy of Roblox, launches it cleanly, protects
 ## Highlights
 
 - **Direct & Fast Official Installation**: Downloads Roblox directly from the official CDN and installs it into an isolated folder so it never conflicts with existing installs.
-- **Built-in Anti-Cheat Protection**: Background security watchdog active while Roblox runs from RustBlox, flagging external cheat tools, DLL injection, and script executors.
+- **TheWatcher Anti-Cheat**: Built-in background security watchdog and system tray icon active while Roblox runs from RustBlox, enforcing protection against external cheat tools, DLL injection, and script executors.
 - **FastFlags Management**: Direct profile editor for `ClientAppSettings.json` with native JSON formatting, import/export, and instant apply.
 - **In-Game Settings Control**: Unlock your FPS limit, graphics quality, performance stats overlay, mouse sensitivity, and reduced motion directly from the launcher.
 - **Custom Mods & Font Tool**: Easily apply custom fonts and textures with automatic backups so originals are always safely restored.

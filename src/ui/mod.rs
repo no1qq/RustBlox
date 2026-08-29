@@ -191,6 +191,7 @@ pub struct UiState {
     pub confirm: Option<LaunchTarget>,
     pub extra_args_buffer: Option<String>,
     pub channel_buffer: Option<String>,
+    pub scale_buffer: Option<String>,
     pub show_log: bool,
 }
 

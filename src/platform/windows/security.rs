@@ -10,7 +10,14 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, Process32FirstW, Process32NextW,
     MODULEENTRY32W, PROCESSENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows_sys::Win32::UI::Shell::{
+    Shell_NotifyIconW, NIF_ICON, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetDesktopWindow, LoadIconW, HICON, IDI_APPLICATION, IDI_SHIELD,
+};
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
 
@@ -296,4 +303,43 @@ pub fn clean_roblox_dir_proxies(dir: &Path) -> Vec<PathBuf> {
         }
     }
     removed
+}
+
+pub fn show_tray_icon(tooltip: &str) {
+    unsafe {
+        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
+        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        data.hWnd = GetDesktopWindow();
+        data.uID = 0x524258;
+        data.uFlags = NIF_ICON | NIF_TIP;
+
+        let hinstance = GetModuleHandleW(std::ptr::null());
+        let mut icon = LoadIconW(hinstance, std::ptr::dangling::<u16>());
+        if icon == 0 as HICON {
+            icon = LoadIconW(0 as _, IDI_SHIELD);
+        }
+        if icon == 0 as HICON {
+            icon = LoadIconW(0 as _, IDI_APPLICATION);
+        }
+        data.hIcon = icon;
+
+        let mut tip: [u16; 128] = [0; 128];
+        let utf16: Vec<u16> = tooltip.encode_utf16().take(127).collect();
+        tip[..utf16.len()].copy_from_slice(&utf16);
+        data.szTip = tip;
+
+        if Shell_NotifyIconW(NIM_MODIFY, &data) == 0 {
+            Shell_NotifyIconW(NIM_ADD, &data);
+        }
+    }
+}
+
+pub fn hide_tray_icon() {
+    unsafe {
+        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
+        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        data.hWnd = GetDesktopWindow();
+        data.uID = 0x524258;
+        Shell_NotifyIconW(NIM_DELETE, &data);
+    }
 }

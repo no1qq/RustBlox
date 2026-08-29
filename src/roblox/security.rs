@@ -36,6 +36,7 @@ impl SecurityWatchdog {
 
     pub fn stop(&self) {
         self.cancel.store(true, Ordering::Relaxed);
+        platform::hide_tray_icon();
     }
 
     pub fn start<F>(&mut self, pid: u32, install_dir: PathBuf, auto_terminate: bool, on_threat: F)
@@ -52,7 +53,7 @@ impl SecurityWatchdog {
         running.store(true, Ordering::Relaxed);
 
         std::thread::Builder::new()
-            .name("security-watchdog".into())
+            .name("thewatcher-security".into())
             .spawn(move || {
                 run_watchdog(
                     pid,
@@ -85,6 +86,7 @@ fn run_watchdog<F>(
 ) where
     F: Fn(SecurityThreat) + Send + Sync,
 {
+    platform::show_tray_icon("TheWatcher Anti-Cheat - Active");
     let mut seen_threats = std::collections::HashSet::new();
 
     while !cancel.load(Ordering::Relaxed) && process::is_pid_alive(pid) {
@@ -94,7 +96,7 @@ fn run_watchdog<F>(
             let key = format!("{}:{}", threat.name, threat.pid.unwrap_or(0));
             if seen_threats.insert(key) {
                 crate::log_warn!(
-                    "[SECURITY] Flagged {}: {} - {}",
+                    "[TheWatcher] Flagged {}: {} - {}",
                     threat.kind.label(),
                     threat.name,
                     threat.detail
@@ -119,6 +121,7 @@ fn run_watchdog<F>(
         std::thread::sleep(SCAN_INTERVAL);
     }
 
+    platform::hide_tray_icon();
     running.store(false, Ordering::Relaxed);
 }
 
