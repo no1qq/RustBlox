@@ -984,6 +984,7 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
         } else {
             std::ptr::null_mut()
         };
+        let mut consecutive_dead: u32 = 0;
 
         loop {
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE) != 0 {
@@ -996,7 +997,8 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                 if let Some(player) = status.players.first() {
                     pid = player.pid;
                     roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-                } else if start_time.elapsed() > std::time::Duration::from_secs(90) {
+                    consecutive_dead = 0;
+                } else if start_time.elapsed() > std::time::Duration::from_secs(120) {
                     break;
                 }
             } else {
@@ -1004,15 +1006,24 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                     roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
                 }
 
+                let mut is_active = false;
                 if !roblox_handle.is_null() {
                     let mut exit_code: u32 = 0;
-                    let active = GetExitCodeProcess(roblox_handle, &mut exit_code) != 0
-                        && exit_code == 259;
-                    if !active {
+                    if GetExitCodeProcess(roblox_handle, &mut exit_code) != 0 && exit_code == 259 {
+                        is_active = true;
+                    }
+                }
+                if !is_active && crate::roblox::process::is_pid_alive(pid) {
+                    is_active = true;
+                }
+
+                if is_active {
+                    consecutive_dead = 0;
+                } else {
+                    consecutive_dead += 1;
+                    if consecutive_dead >= 10 {
                         break;
                     }
-                } else if !crate::roblox::process::is_pid_alive(pid) {
-                    break;
                 }
 
                 if last_scan.elapsed() >= std::time::Duration::from_secs(3) {
