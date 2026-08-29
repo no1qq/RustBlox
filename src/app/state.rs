@@ -150,7 +150,7 @@ impl AppState {
             startup_notes,
             exe_path: std::env::current_exe().ok(),
             close_requested: false,
-            security: crate::roblox::security::SecurityWatchdog::default(),
+            security: crate::roblox::security::SecurityWatchdog,
             settings_dirty_at: None,
             flags_dirty_at: None,
             game_dirty_at: None,
@@ -522,7 +522,17 @@ impl AppState {
             if let Some(pid) = self.session.report.as_ref().and_then(|r| r.pid) {
                 if let Some(install) = self.detection.active() {
                     let install_dir = install.version_dir.clone();
-                    self.security.start(pid, install_dir, true, |_threat| {});
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = platform::spawn_detached(
+                            &exe,
+                            &[
+                                "--thewatcher".to_string(),
+                                pid.to_string(),
+                                install_dir.display().to_string(),
+                            ],
+                            None,
+                        );
+                    }
                 }
             }
         }
@@ -607,10 +617,10 @@ impl AppState {
 
     fn finish_flow(&mut self) {
         match self.session.phase {
-            Phase::Succeeded if self.stays_open_after_launch() => {
-                self.flow.stage = FlowStage::Watching;
+            Phase::Succeeded => {
+                self.flow.stage = FlowStage::Finished;
+                self.close_requested = true;
             }
-            Phase::Succeeded => self.flow.stage = FlowStage::Finished,
             Phase::Cancelled => self
                 .flow
                 .fail("The launch was cancelled.".into(), None, true),
@@ -1038,7 +1048,7 @@ impl AppState {
     }
 
     pub fn stays_open_after_launch(&self) -> bool {
-        true
+        false
     }
 
     pub fn left_the_client(&self) -> bool {
@@ -1501,6 +1511,7 @@ impl AppState {
             self.game_dirty_at = Some(Instant::now());
             self.flush_game_settings();
         }
+        self.security.stop();
         self.presence.stop();
         Ok(())
     }

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::roblox::uri;
 
 pub const HELP: &str = "\
@@ -31,6 +33,10 @@ pub enum CommandKind {
     Window,
     WindowOnSettings,
     LaunchNow,
+    TheWatcher {
+        pid: u32,
+        install_dir: PathBuf,
+    },
     Forward(String),
     Print(String),
     Error(String),
@@ -63,6 +69,22 @@ where
             "--portable" => invocation.portable = true,
             "--settings" => invocation.command_kind = CommandKind::WindowOnSettings,
             "--launch" => invocation.command_kind = CommandKind::LaunchNow,
+            "--thewatcher" => {
+                let pid_str = iter.next();
+                let dir_str = iter.next();
+                if let (Some(pid_val), Some(dir_val)) = (pid_str, dir_str) {
+                    if let Ok(pid) = pid_val.parse::<u32>() {
+                        invocation.command_kind = CommandKind::TheWatcher {
+                            pid,
+                            install_dir: PathBuf::from(dir_val),
+                        };
+                        return invocation;
+                    }
+                }
+                invocation.command_kind =
+                    CommandKind::Error("--thewatcher requires a PID and install directory".into());
+                return invocation;
+            }
             "--forward" | "-player" | "--player" => match iter.next() {
                 Some(value) => match uri::validate(&value) {
                     Ok(clean) => invocation.command_kind = CommandKind::Forward(clean),
@@ -142,5 +164,17 @@ mod tests {
     fn unknown_options_are_reported() {
         let parsed = parse(["--wat"]);
         assert!(matches!(parsed.command_kind, CommandKind::Error(_)));
+    }
+
+    #[test]
+    fn parses_thewatcher_arguments() {
+        let parsed = parse(["--thewatcher", "1234", "C:/Roblox/Versions"]);
+        assert_eq!(
+            parsed.command_kind,
+            CommandKind::TheWatcher {
+                pid: 1234,
+                install_dir: PathBuf::from("C:/Roblox/Versions"),
+            }
+        );
     }
 }

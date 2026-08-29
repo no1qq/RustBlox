@@ -102,3 +102,5 @@ pub fn clean_roblox_dir_proxies(_dir: &std::path::Path) -> Vec<std::path::PathBu
 pub fn show_tray_icon(_tooltip: &str) {}
 
 pub fn hide_tray_icon() {}
+
+pub fn run_thewatcher_service(_pid: u32, _install_dir: std::path::PathBuf) {}

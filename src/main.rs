@@ -32,6 +32,10 @@ fn main() -> ExitCode {
             print_to_console(&format!("RustBlox: {message}\n"));
             ExitCode::FAILURE
         }
+        CommandKind::TheWatcher { pid, install_dir } => {
+            platform::run_thewatcher_service(*pid, install_dir.clone());
+            ExitCode::SUCCESS
+        }
         _ => match run(invocation) {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {

@@ -1,5 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=assets/rustblox.ico");
+    println!("cargo:rerun-if-changed=assets/thewatcher.ico");
     println!("cargo:rerun-if-changed=assets/rustblox.manifest");
 
     #[cfg(windows)]

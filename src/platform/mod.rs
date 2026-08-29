@@ -8,15 +8,15 @@ mod windows;
 #[cfg(windows)]
 pub use windows::{
     attach_parent_console, clean_roblox_dir_proxies, file_version, find_processes, free_space,
-    hide_tray_icon, open_path, open_url, protocol, scan_security, shortcut, show_tray_icon,
-    spawn_detached, system_dark_mode, terminate_threat_pid,
+    hide_tray_icon, open_path, open_url, protocol, run_thewatcher_service, shortcut,
+    spawn_detached, system_dark_mode,
 };
 
 #[cfg(not(windows))]
 pub use fallback::{
     attach_parent_console, clean_roblox_dir_proxies, file_version, find_processes, free_space,
-    hide_tray_icon, open_path, open_url, protocol, scan_security, shortcut, show_tray_icon,
-    spawn_detached, system_dark_mode, terminate_threat_pid,
+    hide_tray_icon, open_path, open_url, protocol, run_thewatcher_service, shortcut,
+    spawn_detached, system_dark_mode,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,6 +78,7 @@ pub enum ThreatKind {
 }
 
 impl ThreatKind {
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             ThreatKind::KnownCheatProcess => "External cheat or tool",

@@ -2,7 +2,9 @@ use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, WAIT_OBJECT_0,
+};
 use windows_sys::Win32::Storage::FileSystem::{
     FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
 };
@@ -11,52 +13,100 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     MODULEENTRY32W, PROCESSENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_TERMINATE,
+};
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetDesktopWindow, LoadIconW, HICON, IDI_APPLICATION, IDI_SHIELD,
+    CreateIconFromResourceEx, EnumWindows, GetDesktopWindow, GetSystemMetrics,
+    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, LoadIconW,
+    HICON, IDI_SHIELD, LR_DEFAULTCOLOR, SM_CXSMICON,
 };
+
+const SYNCHRONIZE: u32 = 0x0010_0000;
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
 
-const CHEAT_PROCESS_NAMES: &[&str] = &[
-    "cheatengine-x86_64.exe",
-    "cheatengine-i386.exe",
-    "cheatengine-x86_64-sse4-avx2.exe",
-    "cheatengine.exe",
-    "solara.exe",
-    "solarabootstrapper.exe",
-    "celery.exe",
-    "celeryapp.exe",
-    "celeryinject.exe",
-    "wave.exe",
-    "wavebootstrapper.exe",
-    "swift.exe",
-    "swift_bootstrapper.exe",
-    "swiftbootstrapper.exe",
-    "krnl.exe",
-    "krnlss.exe",
-    "fluxus.exe",
-    "fluxus_v7.exe",
-    "electron.exe",
-    "oxygenu.exe",
-    "valyse.exe",
-    "xenos.exe",
-    "xenos64.exe",
-    "extremeinjector.exe",
-    "sydo.exe",
-    "x64dbg.exe",
-    "x32dbg.exe",
-    "ida64.exe",
-    "ida.exe",
-    "scylla.exe",
-    "scylla_x64.exe",
-    "scylla_x86.exe",
-    "processhacker.exe",
-    "systeminformer.exe",
-    "httpdebuggerui.exe",
+const THEWATCHER_ICO: &[u8] = include_bytes!("../../../assets/thewatcher.ico");
+
+const CHEAT_PROCESS_KEYWORDS: &[&str] = &[
+    "matrix",
+    "matrixhub",
+    "newui",
+    "newuiv3",
+    "solara",
+    "celery",
+    "wave",
+    "swift",
+    "krnl",
+    "fluxus",
+    "electron",
+    "oxygenu",
+    "valyse",
+    "krampus",
+    "xenos",
+    "xeno",
+    "extremeinjector",
+    "cheatengine",
+    "x64dbg",
+    "x32dbg",
+    "ida64",
+    "ida",
+    "scylla",
+    "processhacker",
+    "systeminformer",
+    "httpdebugger",
+    "reclass",
+    "sydo",
+    "aimbot",
+    "wallhack",
+    "streamproof",
+    "injector",
+    "executor",
+    "exploit",
+];
+
+const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
+    "matrix hub",
+    "matrix",
+    "newuiv3",
+    "solara",
+    "wave",
+    "celery",
+    "krampus",
+    "xeno",
+    "xenos",
+    "delta",
+    "fluxus",
+    "arceus",
+    "codex",
+    "electron",
+    "krnl",
+    "swift",
+    "nemesis",
+    "olympus",
+    "valyse",
+    "nihon",
+    "furk",
+    "oxygen u",
+    "jjsploit",
+    "script-ware",
+    "scriptware",
+    "cheat engine",
+    "x64dbg",
+    "x32dbg",
+    "ida pro",
+    "process hacker",
+    "system informer",
+    "http debugger",
+    "reclass",
+    "roblox external",
+    "external overlay",
+    "script executor",
+    "cheat executor",
 ];
 
 const KNOWN_EXECUTOR_DLLS: &[&str] = &[
@@ -94,6 +144,8 @@ const PROXY_DLL_NAMES: &[&str] = &[
 ];
 
 const EXECUTOR_PIPE_PREFIXES: &[&str] = &[
+    "matrix",
+    "matrix_pipe",
     "celery",
     "solara",
     "wave",
@@ -138,6 +190,7 @@ pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> Sec
     let mut threats = Vec::new();
 
     scan_cheat_processes(&mut threats);
+    scan_cheat_windows(&mut threats);
     scan_executor_pipes(&mut threats);
 
     if let Some(pid) = player_pid {
@@ -177,15 +230,16 @@ fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>) {
         let name = from_wide_nul(&entry.szExeFile);
         let name_lower = name.to_ascii_lowercase();
 
-        if CHEAT_PROCESS_NAMES
+        let is_cheat = CHEAT_PROCESS_KEYWORDS
             .iter()
-            .any(|cheat| name_lower == *cheat || name_lower.starts_with("cheatengine"))
-        {
+            .any(|kw| name_lower.contains(kw));
+
+        if is_cheat {
             threats.push(SecurityThreat {
                 kind: ThreatKind::KnownCheatProcess,
                 name: name.clone(),
                 detail: format!(
-                    "Active cheat or script executor process running (PID {})",
+                    "Active cheat or script executor process running: {name} (PID {})",
                     entry.th32ProcessID
                 ),
                 pid: Some(entry.th32ProcessID),
@@ -194,6 +248,55 @@ fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>) {
 
         ok = unsafe { Process32NextW(snapshot.0, &mut entry) };
     }
+}
+
+struct WindowScanContext {
+    threats: Vec<SecurityThreat>,
+}
+
+unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
+    if IsWindowVisible(hwnd) == 0 {
+        return 1;
+    }
+    let length = GetWindowTextLengthW(hwnd);
+    if length <= 0 {
+        return 1;
+    }
+    let mut buffer = vec![0u16; (length + 1) as usize];
+    let copied = GetWindowTextW(hwnd, buffer.as_mut_ptr(), length + 1);
+    if copied <= 0 {
+        return 1;
+    }
+    let title = from_wide_nul(&buffer);
+    let title_lower = title.to_ascii_lowercase();
+
+    let matches_cheat = CHEAT_WINDOW_KEYWORDS
+        .iter()
+        .any(|keyword| title_lower.contains(keyword));
+
+    if matches_cheat {
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let ctx = &mut *(lparam as *mut WindowScanContext);
+        ctx.threats.push(SecurityThreat {
+            kind: ThreatKind::KnownCheatProcess,
+            name: title.clone(),
+            detail: format!("Cheat window '{title}' detected (PID {pid})"),
+            pid: if pid != 0 { Some(pid) } else { None },
+        });
+    }
+
+    1
+}
+
+fn scan_cheat_windows(threats: &mut Vec<SecurityThreat>) {
+    let mut context = WindowScanContext {
+        threats: Vec::new(),
+    };
+    unsafe {
+        EnumWindows(Some(enum_windows_proc), &mut context as *mut _ as LPARAM);
+    }
+    threats.extend(context.threats);
 }
 
 fn scan_injected_modules(pid: u32, threats: &mut Vec<SecurityThreat>) {
@@ -218,11 +321,18 @@ fn scan_injected_modules(pid: u32, threats: &mut Vec<SecurityThreat>) {
 
         let is_temp = module_path_lower.contains(r"\appdata\local\temp\")
             || module_path_lower.contains(r"\temp\");
+        let is_removable = module_path_lower.starts_with("d:\\")
+            || module_path_lower.starts_with("e:\\")
+            || module_path_lower.starts_with("f:\\")
+            || module_path_lower.starts_with("g:\\");
+        let is_cheat_kw = CHEAT_PROCESS_KEYWORDS
+            .iter()
+            .any(|kw| module_name_lower.contains(kw) || module_path_lower.contains(kw));
         let is_known = KNOWN_EXECUTOR_DLLS
             .iter()
             .any(|dll| module_name_lower == *dll);
 
-        if is_temp || is_known {
+        if is_temp || is_removable || is_cheat_kw || is_known {
             threats.push(SecurityThreat {
                 kind: ThreatKind::InjectedModule,
                 name: module_name,
@@ -305,6 +415,74 @@ pub fn clean_roblox_dir_proxies(dir: &Path) -> Vec<PathBuf> {
     removed
 }
 
+fn load_thewatcher_icon() -> HICON {
+    let bytes = THEWATCHER_ICO;
+    if bytes.len() >= 22 {
+        let count = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
+        let desired_size = unsafe { GetSystemMetrics(SM_CXSMICON) };
+        let mut best_offset = 0;
+        let mut best_size = 0;
+        let mut best_diff = i32::MAX;
+
+        for i in 0..count {
+            let entry_offset = 6 + i * 16;
+            if entry_offset + 16 > bytes.len() {
+                break;
+            }
+            let mut width = bytes[entry_offset] as i32;
+            if width == 0 {
+                width = 256;
+            }
+            let dw_bytes_in_res = u32::from_le_bytes([
+                bytes[entry_offset + 8],
+                bytes[entry_offset + 9],
+                bytes[entry_offset + 10],
+                bytes[entry_offset + 11],
+            ]) as usize;
+            let dw_image_offset = u32::from_le_bytes([
+                bytes[entry_offset + 12],
+                bytes[entry_offset + 13],
+                bytes[entry_offset + 14],
+                bytes[entry_offset + 15],
+            ]) as usize;
+
+            let diff = (width - desired_size).abs();
+            if diff < best_diff {
+                best_diff = diff;
+                best_offset = dw_image_offset;
+                best_size = dw_bytes_in_res;
+            }
+        }
+
+        if best_size > 0 && best_offset + best_size <= bytes.len() {
+            let icon_data = &bytes[best_offset..best_offset + best_size];
+            let hicon = unsafe {
+                CreateIconFromResourceEx(
+                    icon_data.as_ptr(),
+                    icon_data.len() as u32,
+                    1,
+                    0x00030000,
+                    desired_size,
+                    desired_size,
+                    LR_DEFAULTCOLOR,
+                )
+            };
+            if hicon != 0 as HICON {
+                return hicon;
+            }
+        }
+    }
+
+    unsafe {
+        let hinstance = GetModuleHandleW(std::ptr::null());
+        let icon = LoadIconW(hinstance, std::ptr::dangling::<u16>());
+        if icon != 0 as HICON {
+            return icon;
+        }
+        LoadIconW(0 as _, IDI_SHIELD)
+    }
+}
+
 pub fn show_tray_icon(tooltip: &str) {
     unsafe {
         let mut data: NOTIFYICONDATAW = std::mem::zeroed();
@@ -312,16 +490,7 @@ pub fn show_tray_icon(tooltip: &str) {
         data.hWnd = GetDesktopWindow();
         data.uID = 0x524258;
         data.uFlags = NIF_ICON | NIF_TIP;
-
-        let hinstance = GetModuleHandleW(std::ptr::null());
-        let mut icon = LoadIconW(hinstance, std::ptr::dangling::<u16>());
-        if icon == 0 as HICON {
-            icon = LoadIconW(0 as _, IDI_SHIELD);
-        }
-        if icon == 0 as HICON {
-            icon = LoadIconW(0 as _, IDI_APPLICATION);
-        }
-        data.hIcon = icon;
+        data.hIcon = load_thewatcher_icon();
 
         let mut tip: [u16; 128] = [0; 128];
         let utf16: Vec<u16> = tooltip.encode_utf16().take(127).collect();
@@ -342,4 +511,37 @@ pub fn hide_tray_icon() {
         data.uID = 0x524258;
         Shell_NotifyIconW(NIM_DELETE, &data);
     }
+}
+
+pub fn run_thewatcher_service(pid: u32, install_dir: PathBuf) {
+    show_tray_icon("TheWatcher Anti-Cheat - Active");
+
+    let process_handle =
+        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+
+    loop {
+        let report = scan_security(Some(pid), Some(&install_dir));
+        for threat in report.threats {
+            if let Some(threat_pid) = threat.pid {
+                if threat_pid != pid {
+                    terminate_threat_pid(threat_pid);
+                }
+            }
+        }
+
+        if process_handle.is_null() {
+            break;
+        }
+
+        let wait = unsafe { WaitForSingleObject(process_handle, 500) };
+        if wait == WAIT_OBJECT_0 {
+            break;
+        }
+    }
+
+    if !process_handle.is_null() {
+        unsafe { CloseHandle(process_handle) };
+    }
+
+    hide_tray_icon();
 }
