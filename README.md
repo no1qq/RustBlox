@@ -1,29 +1,28 @@
 # RustBlox
 
-A modern, fast, and secure desktop client launcher for Roblox on Windows, written entirely in Rust.
+a lightweight, fast Roblox launcher and bootstrapper for Windows, written in Rust.
 
-RustBlox installs its own isolated copy of Roblox, launches it cleanly, protects your session with an active security watchdog, and keeps your game settings and launch configuration in one organized place.
+RustBlox downloads its own isolated copy of Roblox so your main installation is never touched, lets you manage FastFlags and game settings, applies custom fonts and mods cleanly, and runs a lightweight security watchdog while you play.
 
-## Highlights
+## features
 
-- **Direct & Fast Official Installation**: Downloads Roblox directly from the official CDN and installs it into an isolated folder so it never conflicts with existing installs.
-- **TheWatcher Anti-Cheat**: Built-in background security watchdog and system tray icon active while Roblox runs from RustBlox, enforcing protection against external cheat tools, DLL injection, and script executors.
-- **FastFlags Management**: Direct profile editor for `ClientAppSettings.json` with native JSON formatting, import/export, and instant apply.
-- **In-Game Settings Control**: Unlock your FPS limit, graphics quality, performance stats overlay, mouse sensitivity, and reduced motion directly from the launcher.
-- **Custom Mods & Font Tool**: Easily apply custom fonts and textures with automatic backups so originals are always safely restored.
-- **Discord Rich Presence**: Show the game you are playing and elapsed time directly on your Discord profile.
-- **Customizable Shortcuts & Launch Options**: Desktop and Start menu shortcuts and deep link support (`roblox:` / `roblox-player:`).
-- **Modern Adaptive Interface**: Clean interface with light and dark mode following Windows system preferences.
+- clean Roblox installation: downloads directly from the official Roblox CDN into an isolated data folder so it never conflicts with other copies on your machine.
+- FastFlag manager: built-in editor for `ClientAppSettings.json` with typed values, import/export support, and instant apply without manual JSON editing.
+- in-game settings control: tweak your FPS cap, graphics quality, mouse sensitivity, and motion settings directly from the launcher. (note: this modifies `%LOCALAPPDATA%\Roblox\GlobalBasicSettings_<n>.xml`, the shared Roblox settings file. it is turned off by default and automatically creates a backup before making any changes.)
+- custom mods and fonts: drop in custom fonts or textures with one click; original files are backed up automatically and restored cleanly when mods are disabled.
+- TheWatcher security watchdog: background scanner with a system tray icon that runs while Roblox is active to detect external memory reading handles, unbacked executable memory regions, transparent click-through overlays, and executor named pipes.
+- Discord Rich Presence: shows your current game and playtime on Discord. place titles are queried once from Roblox's public web API only when presence is enabled; no other tracking or analytics requests are ever made.
+- adaptive UI & portable mode: follows your Windows dark/light preference, starts instantly, and supports `--portable` to keep all configuration inside the local folder.
 
-## Getting Started
+## getting started
 
-Starting RustBlox opens a compact launcher with three simple options:
+running `RustBlox.exe` opens a small menu with three options:
 
-1. **Launch Roblox**: Checks for updates, verifies files, applies your settings, and starts the game.
-2. **Configure Settings**: Opens the full dashboard to manage game settings, FastFlags, mods, shortcuts, and appearance.
-3. **Uninstall**: Cleanly removes RustBlox and its data without affecting your system.
+1. launch Roblox: checks for updates, verifies files, applies your flags/mods, and starts the game.
+2. configure settings: opens the full dashboard to manage flags, graphics, mods, shortcuts, and themes.
+3. uninstall: cleanly wipes RustBlox data and shortcuts without leaving leftovers behind.
 
-### Command Line Options
+### command line options
 
 ```text
 RustBlox                    open the launcher
@@ -36,16 +35,16 @@ RustBlox --version          print the version
 RustBlox --help             show usage help
 ```
 
-## Building from Source
+## building from source
 
-Requirements: Stable Rust toolchain with the `x86_64-pc-windows-msvc` target and MSVC build tools with the Windows SDK.
+requires a stable Rust toolchain targeting `x86_64-pc-windows-msvc` and MSVC build tools with the Windows SDK.
 
 ```bash
 cargo build --release
 ```
 
-The release executable will be located at `target/release/RustBlox.exe`.
+the compiled binary will be placed at `target/release/RustBlox.exe`.
 
-## License
+## license
 
 MIT
