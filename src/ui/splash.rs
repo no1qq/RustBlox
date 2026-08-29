@@ -112,6 +112,8 @@ pub fn render(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut U
     }
     if stage == FlowStage::Watching {
         ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(700));
         if !state.roblox.player_running() && state.left_the_client() {
             state.close_requested = true;

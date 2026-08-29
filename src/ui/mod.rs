@@ -389,6 +389,9 @@ impl eframe::App for RustBloxApp {
                 return;
             }
             Shell::Splash => {
+                if self.state.flow.stage == crate::app::FlowStage::Watching {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                }
                 self.small_window(root, &theme, "Starting Roblox", splash::render);
                 return;
             }
