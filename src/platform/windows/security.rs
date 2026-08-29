@@ -18,9 +18,8 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetExitCodeProcess, GetProcessId, OpenProcess, OpenProcessToken,
-    QueryFullProcessImageNameW, TerminateProcess, PROCESS_DUP_HANDLE,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    GetCurrentProcess, GetProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
+    TerminateProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows_sys::Win32::UI::Shell::{
     ShellExecuteExW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
@@ -893,7 +892,17 @@ pub fn enable_debug_privilege() -> bool {
 
 pub fn spawn_elevated(program: &Path, args: &[String]) -> crate::error::Result<()> {
     let file = wide_null(&program.display().to_string());
-    let params_str = args.join(" ");
+    let params_str = args
+        .iter()
+        .map(|a| {
+            if a.contains(' ') {
+                format!("\"{a}\"")
+            } else {
+                a.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
     let params = wide_null(&params_str);
     let verb = wide_null("runas");
 
@@ -992,51 +1001,40 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                 DispatchMessageW(&msg);
             }
 
-            if pid == 0 {
-                let status = crate::roblox::process::status();
-                if let Some(player) = status.players.first() {
+            let status = crate::roblox::process::status();
+            if let Some(player) = status.players.first() {
+                if player.pid != pid {
+                    if !roblox_handle.is_null() {
+                        CloseHandle(roblox_handle);
+                    }
                     pid = player.pid;
                     roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-                    consecutive_dead = 0;
-                } else if start_time.elapsed() > std::time::Duration::from_secs(120) {
+                }
+                consecutive_dead = 0;
+            } else if pid == 0 {
+                if start_time.elapsed() > std::time::Duration::from_secs(120) {
                     break;
                 }
             } else {
-                if roblox_handle.is_null() {
-                    roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                consecutive_dead += 1;
+                if consecutive_dead >= 10 {
+                    break;
                 }
+            }
 
-                let mut is_active = false;
-                if !roblox_handle.is_null() {
-                    let mut exit_code: u32 = 0;
-                    if GetExitCodeProcess(roblox_handle, &mut exit_code) != 0 && exit_code == 259 {
-                        is_active = true;
-                    }
-                }
-                if !is_active && crate::roblox::process::is_pid_alive(pid) {
-                    is_active = true;
-                }
-
-                if is_active {
-                    consecutive_dead = 0;
-                } else {
-                    consecutive_dead += 1;
-                    if consecutive_dead >= 10 {
-                        break;
-                    }
-                }
-
-                if last_scan.elapsed() >= std::time::Duration::from_secs(3) {
-                    let report = scan_security(Some(pid), Some(&install_dir));
-                    for threat in report.threats {
-                        if let Some(threat_pid) = threat.pid {
-                            if threat_pid != pid {
-                                terminate_threat_pid(threat_pid);
-                            }
+            if pid != 0
+                && consecutive_dead == 0
+                && last_scan.elapsed() >= std::time::Duration::from_secs(3)
+            {
+                let report = scan_security(Some(pid), Some(&install_dir));
+                for threat in report.threats {
+                    if let Some(threat_pid) = threat.pid {
+                        if threat_pid != pid {
+                            terminate_threat_pid(threat_pid);
                         }
                     }
-                    last_scan = std::time::Instant::now();
                 }
+                last_scan = std::time::Instant::now();
             }
 
             std::thread::sleep(std::time::Duration::from_millis(200));
