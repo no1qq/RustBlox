@@ -25,6 +25,10 @@ pub fn spawn_detached(_program: &Path, _args: &[String], _cwd: Option<&Path>) ->
     Err(Error::UnsupportedPlatform)
 }
 
+pub fn spawn_elevated(_program: &Path, _args: &[String]) -> Result<()> {
+    Err(Error::UnsupportedPlatform)
+}
+
 pub mod protocol {
     use std::path::Path;
 

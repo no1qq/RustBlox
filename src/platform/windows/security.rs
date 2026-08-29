@@ -4,7 +4,11 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DuplicateHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM,
+    CloseHandle, DuplicateHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LUID,
+};
+use windows_sys::Win32::Security::{
+    AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
+    TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
@@ -14,17 +18,19 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetExitCodeProcess, GetProcessId, OpenProcess, QueryFullProcessImageNameW,
-    TerminateProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    GetCurrentProcess, GetExitCodeProcess, GetProcessId, OpenProcess, OpenProcessToken,
+    QueryFullProcessImageNameW, TerminateProcess, PROCESS_DUP_HANDLE,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows_sys::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
+    ShellExecuteExW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+    NOTIFYICONDATAW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateIconFromResourceEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     EnumWindows, GetSystemMetrics, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
     IsWindowVisible, LoadIconW, PeekMessageW, RegisterClassW, TranslateMessage, HICON, IDI_SHIELD,
-    LR_DEFAULTCOLOR, MSG, PM_REMOVE, SM_CXSMICON, WNDCLASSW, WS_OVERLAPPED,
+    LR_DEFAULTCOLOR, MSG, PM_REMOVE, SM_CXSMICON, SW_HIDE, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
@@ -844,7 +850,97 @@ pub fn show_tray_icon(_tooltip: &str) {}
 
 pub fn hide_tray_icon() {}
 
-pub fn run_thewatcher_service(pid: u32, install_dir: PathBuf) {
+pub fn enable_debug_privilege() -> bool {
+    unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &mut token,
+        ) == 0
+        {
+            return false;
+        }
+
+        let mut luid: LUID = std::mem::zeroed();
+        let name = wide_null("SeDebugPrivilege");
+        if LookupPrivilegeValueW(std::ptr::null(), name.as_ptr(), &mut luid) == 0 {
+            CloseHandle(token);
+            return false;
+        }
+
+        let mut tp = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: luid,
+                Attributes: SE_PRIVILEGE_ENABLED,
+            }],
+        };
+
+        let result = AdjustTokenPrivileges(
+            token,
+            0,
+            &mut tp as *mut _ as _,
+            std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+
+        CloseHandle(token);
+        result != 0
+    }
+}
+
+pub fn spawn_elevated(program: &Path, args: &[String]) -> crate::error::Result<()> {
+    let file = wide_null(&program.display().to_string());
+    let params_str = args.join(" ");
+    let params = wide_null(&params_str);
+    let verb = wide_null("runas");
+
+    unsafe {
+        let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = verb.as_ptr();
+        info.lpFile = file.as_ptr();
+        info.lpParameters = params.as_ptr();
+        info.nShow = SW_HIDE;
+
+        let ok = ShellExecuteExW(&mut info);
+        if ok == 0 {
+            let err = windows_sys::Win32::Foundation::GetLastError();
+            return Err(crate::error::Error::LaunchFailed(format!(
+                "Administrator elevation was cancelled or failed (code {err})"
+            )));
+        }
+
+        if !info.hProcess.is_null() {
+            CloseHandle(info.hProcess);
+        }
+    }
+
+    Ok(())
+}
+
+pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
+    enable_debug_privilege();
+
+    if pid == 0 {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(60) {
+            let status = crate::roblox::process::status();
+            if let Some(player) = status.players.first() {
+                pid = player.pid;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+
+    if pid == 0 {
+        return;
+    }
+
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
         let class_name = wide_null("TheWatcherTrayClass");
