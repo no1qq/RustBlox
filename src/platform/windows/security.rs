@@ -3,17 +3,19 @@ use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, DuplicateHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM,
+};
 use windows_sys::Win32::Storage::FileSystem::{
     FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_TERMINATE,
+    GetCurrentProcess, GetExitCodeProcess, GetProcessId, OpenProcess, QueryFullProcessImageNameW,
+    TerminateProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
@@ -184,13 +186,17 @@ fn wide_null(value: &str) -> Vec<u16> {
         .collect()
 }
 
-pub fn scan_security(_player_pid: Option<u32>, install_dir: Option<&Path>) -> SecurityReport {
+pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> SecurityReport {
     let mut threats = Vec::new();
     let mut process_map = HashMap::new();
 
     scan_cheat_processes(&mut threats, &mut process_map);
     scan_cheat_windows(&process_map, &mut threats);
     scan_executor_pipes(&mut threats);
+
+    if let Some(pid) = player_pid {
+        scan_roblox_memory_handles(pid, &mut threats);
+    }
 
     if let Some(dir) = install_dir {
         scan_roblox_dir_integrity(dir, &mut threats);
@@ -271,6 +277,155 @@ const WHITELISTED_PROCESS_NAMES: &[&str] = &[
     "amdrsserv.exe",
 ];
 
+const AUTHORIZED_HANDLE_HOLDERS: &[&str] = &[
+    "robloxcrashhandler.exe",
+    "rustblox.exe",
+    "medalencoder.exe",
+    "medal.exe",
+    "obs64.exe",
+    "obs32.exe",
+    "overwolfhelper64.exe",
+    "nvidia share.exe",
+    "nvcontainer.exe",
+    "radeonsofware.exe",
+    "amdow.exe",
+    "csrss.exe",
+    "lsass.exe",
+    "services.exe",
+    "svchost.exe",
+];
+
+pub fn get_process_image_path(pid: u32) -> Option<String> {
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let handle = OwnedHandle(handle);
+    let mut buffer = vec![0u16; 1024];
+    let mut size = buffer.len() as u32;
+    let ok = unsafe { QueryFullProcessImageNameW(handle.0, 0, buffer.as_mut_ptr(), &mut size) };
+    if ok != 0 && size > 0 {
+        Some(from_wide_nul(&buffer[..size as usize]))
+    } else {
+        None
+    }
+}
+
+pub fn is_valid_whitelisted_path(name: &str, path: Option<&str>) -> bool {
+    let name_lower = name.to_ascii_lowercase();
+    let file_name = match name_lower.rfind('\\') {
+        Some(idx) => &name_lower[idx + 1..],
+        None => match name_lower.rfind('/') {
+            Some(idx) => &name_lower[idx + 1..],
+            None => &name_lower,
+        },
+    };
+
+    if !WHITELISTED_PROCESS_NAMES.contains(&file_name) {
+        return false;
+    }
+
+    let Some(full_path) = path else {
+        return true;
+    };
+    let path_lower = full_path.to_ascii_lowercase();
+
+    if (path_lower.contains(r"\appdata\local\temp\")
+        || path_lower.contains(r"\temp\")
+        || path_lower.contains(r"\downloads\")
+        || path_lower.starts_with("d:\\")
+        || path_lower.starts_with("e:\\")
+        || path_lower.starts_with("f:\\"))
+        && file_name != "rustblox.exe"
+        && file_name != "cargo.exe"
+        && file_name != "rustc.exe"
+        && file_name != "git.exe"
+        && file_name != "powershell.exe"
+        && file_name != "pwsh.exe"
+        && file_name != "cmd.exe"
+    {
+        return false;
+    }
+
+    const SYSTEM_ONLY_NAMES: &[&str] = &[
+        "explorer.exe",
+        "svchost.exe",
+        "csrss.exe",
+        "smss.exe",
+        "lsass.exe",
+        "services.exe",
+        "wininit.exe",
+        "winlogon.exe",
+        "dwm.exe",
+        "spoolsv.exe",
+        "sihost.exe",
+        "taskhostw.exe",
+        "ctfmon.exe",
+        "taskmgr.exe",
+        "audiodg.exe",
+        "fontdrvhost.exe",
+        "runtimebroker.exe",
+        "searchhost.exe",
+        "searchapp.exe",
+        "smartscreen.exe",
+        "dllhost.exe",
+    ];
+
+    if SYSTEM_ONLY_NAMES.contains(&file_name) {
+        return path_lower.starts_with(r"c:\windows\")
+            || path_lower.starts_with(r"c:\program files\windowsapps\");
+    }
+
+    if file_name.starts_with("discord") {
+        return path_lower.contains(r"\discord")
+            || path_lower.starts_with(r"c:\program files")
+            || path_lower.starts_with(r"c:\program files (x86)");
+    }
+
+    if file_name == "chrome.exe"
+        || file_name == "msedge.exe"
+        || file_name == "brave.exe"
+        || file_name == "firefox.exe"
+        || file_name == "opera.exe"
+        || file_name == "operagx.exe"
+        || file_name == "vivaldi.exe"
+    {
+        return path_lower.starts_with(r"c:\program files")
+            || path_lower.starts_with(r"c:\program files (x86)")
+            || path_lower.contains(r"\appdata\local\");
+    }
+
+    true
+}
+
+pub fn is_authorized_roblox_handle_holder(name: &str, path: Option<&str>) -> bool {
+    let name_lower = name.to_ascii_lowercase();
+    let file_name = match name_lower.rfind('\\') {
+        Some(idx) => &name_lower[idx + 1..],
+        None => match name_lower.rfind('/') {
+            Some(idx) => &name_lower[idx + 1..],
+            None => &name_lower,
+        },
+    };
+
+    if !AUTHORIZED_HANDLE_HOLDERS.contains(&file_name) {
+        return false;
+    }
+
+    if let Some(p) = path {
+        let p_lower = p.to_ascii_lowercase();
+        if p_lower.contains(r"\temp\")
+            || p_lower.contains(r"\downloads\")
+            || p_lower.starts_with("d:\\")
+            || p_lower.starts_with("e:\\")
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
 pub fn is_whitelisted_process(name: &str) -> bool {
     let name_lower = name.to_ascii_lowercase();
     let file_name = match name_lower.rfind('\\') {
@@ -313,11 +468,125 @@ pub fn is_whitelisted_pid(pid: u32) -> bool {
         return true;
     }
     if let Some(name) = get_process_name_by_pid(pid) {
-        if is_whitelisted_process(&name) {
+        let path = get_process_image_path(pid);
+        if is_valid_whitelisted_path(&name, path.as_deref()) {
             return true;
         }
     }
     false
+}
+
+#[repr(C)]
+struct SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX {
+    _object: *mut std::ffi::c_void,
+    unique_process_id: usize,
+    handle_value: usize,
+    granted_access: u32,
+    _creator_back_trace_index: u16,
+    _object_type_index: u16,
+    _handle_attributes: u32,
+    _reserved: u32,
+}
+
+type NtQuerySystemInformationFn = unsafe extern "system" fn(
+    system_information_class: i32,
+    system_information: *mut std::ffi::c_void,
+    system_information_length: u32,
+    return_length: *mut u32,
+) -> i32;
+
+fn scan_roblox_memory_handles(target_pid: u32, threats: &mut Vec<SecurityThreat>) {
+    unsafe {
+        let ntdll_name = wide_null("ntdll.dll");
+        let h_ntdll = GetModuleHandleW(ntdll_name.as_ptr());
+        if h_ntdll.is_null() {
+            return;
+        }
+        let proc = GetProcAddress(h_ntdll, c"NtQuerySystemInformation".as_ptr() as _);
+        let Some(proc_addr) = proc else {
+            return;
+        };
+        let nt_query_system_information: NtQuerySystemInformationFn =
+            std::mem::transmute(proc_addr);
+
+        let mut size = 1024 * 1024 * 4;
+        let mut buffer: Vec<u8> = vec![0; size];
+        let mut needed: u32 = 0;
+
+        let mut status =
+            nt_query_system_information(64, buffer.as_mut_ptr() as _, size as u32, &mut needed);
+        while status == -1073741820 {
+            size = (needed as usize) + 1024 * 1024;
+            buffer.resize(size, 0);
+            status =
+                nt_query_system_information(64, buffer.as_mut_ptr() as _, size as u32, &mut needed);
+        }
+
+        if status != 0 || buffer.len() < 16 {
+            return;
+        }
+
+        let count = *(buffer.as_ptr() as *const usize);
+        let entry_size = std::mem::size_of::<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>();
+        let current_process = GetCurrentProcess();
+        let my_pid = std::process::id();
+
+        for i in 0..count {
+            let offset = 16 + i * entry_size;
+            if offset + entry_size > buffer.len() {
+                break;
+            }
+            let entry = &*(buffer.as_ptr().add(offset) as *const SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX);
+            let holding_pid = entry.unique_process_id as u32;
+
+            if holding_pid == target_pid
+                || holding_pid == my_pid
+                || holding_pid == 0
+                || holding_pid == 4
+            {
+                continue;
+            }
+
+            if (entry.granted_access & 0x0010) == 0 {
+                continue;
+            }
+
+            let holding_handle = OpenProcess(PROCESS_DUP_HANDLE, 0, holding_pid);
+            if !holding_handle.is_null() {
+                let mut dup_handle: HANDLE = std::ptr::null_mut();
+                if DuplicateHandle(
+                    holding_handle,
+                    entry.handle_value as HANDLE,
+                    current_process,
+                    &mut dup_handle,
+                    PROCESS_QUERY_LIMITED_INFORMATION,
+                    0,
+                    0,
+                ) != 0
+                {
+                    let target_of_handle = GetProcessId(dup_handle);
+                    if target_of_handle == target_pid {
+                        let proc_name = get_process_name_by_pid(holding_pid)
+                            .unwrap_or_else(|| "Unknown".into());
+                        let proc_path = get_process_image_path(holding_pid);
+
+                        if !is_authorized_roblox_handle_holder(&proc_name, proc_path.as_deref()) {
+                            threats.push(SecurityThreat {
+                                kind: ThreatKind::KnownCheatProcess,
+                                name: proc_name.clone(),
+                                detail: format!(
+                                    "Unauthorized external process holding memory-read handle to Roblox: {proc_name} (PID {holding_pid})"
+                                ),
+                                pid: Some(holding_pid),
+                            });
+                        }
+                    }
+                    CloseHandle(dup_handle);
+                }
+                CloseHandle(holding_handle);
+            }
+        }
+    }
 }
 
 pub fn terminate_threat_pid(pid: u32) -> bool {
@@ -695,6 +964,80 @@ mod tests {
         assert!(!is_whitelisted_process("matrixhub.exe"));
         assert!(!is_whitelisted_process("solara.exe"));
         assert!(!is_whitelisted_process("wave.exe"));
+    }
+
+    #[test]
+    fn test_valid_whitelisted_paths() {
+        assert!(is_valid_whitelisted_path(
+            "explorer.exe",
+            Some(r"C:\Windows\explorer.exe")
+        ));
+        assert!(is_valid_whitelisted_path(
+            "svchost.exe",
+            Some(r"C:\Windows\System32\svchost.exe")
+        ));
+        assert!(is_valid_whitelisted_path(
+            "discord.exe",
+            Some(r"C:\Users\Julian\AppData\Local\Discord\app-1.0.9168\Discord.exe")
+        ));
+        assert!(is_valid_whitelisted_path(
+            "chrome.exe",
+            Some(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+        ));
+
+        assert!(!is_valid_whitelisted_path(
+            "explorer.exe",
+            Some(r"D:\matrix\explorer.exe")
+        ));
+        assert!(!is_valid_whitelisted_path(
+            "svchost.exe",
+            Some(r"C:\Users\Julian\AppData\Local\Temp\svchost.exe")
+        ));
+        assert!(!is_valid_whitelisted_path(
+            "discord.exe",
+            Some(r"D:\newv3uimatrix\discord.exe")
+        ));
+        assert!(!is_valid_whitelisted_path(
+            "discord.exe",
+            Some(r"C:\Users\Julian\AppData\Local\Temp\discord.exe")
+        ));
+    }
+
+    #[test]
+    fn test_authorized_handle_holders() {
+        assert!(is_authorized_roblox_handle_holder(
+            "RobloxCrashHandler.exe",
+            Some(r"C:\Users\Julian\AppData\Local\RustBlox\data\Versions\RobloxCrashHandler.exe")
+        ));
+        assert!(is_authorized_roblox_handle_holder(
+            "RustBlox.exe",
+            Some(r"C:\Users\Julian\Desktop\RustBlox.exe")
+        ));
+        assert!(is_authorized_roblox_handle_holder(
+            "MedalEncoder.exe",
+            Some(r"C:\Users\Julian\AppData\Local\Medal\recorder\MedalEncoder.exe")
+        ));
+        assert!(is_authorized_roblox_handle_holder(
+            "obs64.exe",
+            Some(r"C:\Program Files\obs-studio\bin\64bit\obs64.exe")
+        ));
+
+        assert!(!is_authorized_roblox_handle_holder(
+            "newuiv3.exe",
+            Some(r"D:\matrix\newuiv3.exe")
+        ));
+        assert!(!is_authorized_roblox_handle_holder(
+            "matrix.exe",
+            Some(r"D:\matrix\matrix.exe")
+        ));
+        assert!(!is_authorized_roblox_handle_holder(
+            "python.exe",
+            Some(r"C:\Python310\python.exe")
+        ));
+        assert!(!is_authorized_roblox_handle_holder(
+            "RobloxCrashHandler.exe",
+            Some(r"C:\Users\Julian\AppData\Local\Temp\RobloxCrashHandler.exe")
+        ));
     }
 
     #[test]
