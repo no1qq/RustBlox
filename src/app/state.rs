@@ -263,6 +263,12 @@ impl AppState {
                 } else if was_running {
                     log_info!("the Roblox client closed");
                     self.security.stop();
+                    if self.flow.stage == FlowStage::Watching {
+                        self.flow.stage = FlowStage::Finished;
+                        if self.settings.launch.close_after_launch {
+                            self.close_requested = true;
+                        }
+                    }
                 }
             }
             Update::Launch(event) => {
@@ -587,6 +593,10 @@ impl AppState {
             }
         }
 
+        if self.settings.launch.multi_instance {
+            platform::close_roblox_singleton_mutex();
+        }
+
         self.flow.stage = FlowStage::Launching;
         self.session.reset();
         self.launch(target);
@@ -627,8 +637,12 @@ impl AppState {
     fn finish_flow(&mut self) {
         match self.session.phase {
             Phase::Succeeded => {
-                self.flow.stage = FlowStage::Finished;
-                self.close_requested = true;
+                if self.stays_open_after_launch() {
+                    self.flow.stage = FlowStage::Watching;
+                } else {
+                    self.flow.stage = FlowStage::Finished;
+                    self.close_requested = true;
+                }
             }
             Phase::Cancelled => self
                 .flow
@@ -1030,18 +1044,28 @@ impl AppState {
             return;
         }
 
-        let line = match (self.activity.in_game, self.activity.place_id) {
-            (true, Some(place)) => match self.place_names.get(&place) {
-                Some(name) => format!("Playing {name}"),
-                None => "In a game".to_owned(),
-            },
-            (true, None) => "In a game".to_owned(),
-            (false, _) => "In the Roblox app".to_owned(),
+        let line = if self.settings.discord.streamer_mode {
+            "Playing Roblox".to_owned()
+        } else {
+            match (self.activity.in_game, self.activity.place_id) {
+                (true, Some(place)) => match self.place_names.get(&place) {
+                    Some(name) => format!("Playing {name}"),
+                    None => "In a game".to_owned(),
+                },
+                (true, None) => "In a game".to_owned(),
+                (false, _) => "In the Roblox app".to_owned(),
+            }
         };
 
-        let note = match (self.activity.in_game, self.activity.place_id) {
-            (true, Some(place)) => format!("Place {place}"),
-            _ => String::new(),
+        let note = if self.settings.discord.streamer_mode {
+            String::new()
+        } else {
+            match (self.activity.in_game, self.activity.place_id) {
+                (true, Some(place)) if self.settings.discord.show_place_name => {
+                    format!("Place {place}")
+                }
+                _ => String::new(),
+            }
         };
 
         self.presence.show(crate::discord::Details {
@@ -1057,7 +1081,7 @@ impl AppState {
     }
 
     pub fn stays_open_after_launch(&self) -> bool {
-        false
+        self.settings.discord.is_usable() || !self.settings.launch.close_after_launch
     }
 
     pub fn left_the_client(&self) -> bool {
@@ -1073,11 +1097,36 @@ impl AppState {
             return;
         }
         self.shortcuts_checked_at = Some(Instant::now());
+        if self.settings.shortcuts.start_menu && !shortcuts::Kind::StartMenu.exists() {
+            if let Some(exe) = self.exe_path.clone() {
+                let _ = shortcuts::create(shortcuts::Kind::StartMenu, &exe);
+            }
+        }
+        if self.settings.shortcuts.desktop && !shortcuts::Kind::Desktop.exists() {
+            if let Some(exe) = self.exe_path.clone() {
+                let _ = shortcuts::create(shortcuts::Kind::Desktop, &exe);
+            }
+        }
         self.shortcuts = shortcuts::Present::read();
     }
 
     pub fn toggle_shortcut(&mut self, kind: shortcuts::Kind) {
-        let outcome = if kind.exists() {
+        let will_exist = !kind.exists();
+        match kind {
+            shortcuts::Kind::StartMenu => {
+                self.settings.shortcuts.start_menu = will_exist;
+                self.mark_settings_dirty();
+                self.flush_settings();
+            }
+            shortcuts::Kind::Desktop => {
+                self.settings.shortcuts.desktop = will_exist;
+                self.mark_settings_dirty();
+                self.flush_settings();
+            }
+            _ => {}
+        }
+
+        let outcome = if !will_exist {
             shortcuts::remove(kind).map(|()| None)
         } else {
             match self.exe_path.clone() {
@@ -1105,6 +1154,27 @@ impl AppState {
         }
 
         self.refresh_shortcuts(true);
+    }
+
+    pub fn clean_roblox_cache(&mut self) -> u64 {
+        let mut freed = 0_u64;
+        if let Some(roblox) = crate::roblox::local_dir() {
+            for sub in ["logs", "downloads", "crashes", "LocalStorage", "http"] {
+                let target = roblox.join(sub);
+                if target.is_dir() {
+                    freed += remove_folder_contents(&target);
+                }
+            }
+        }
+        let roblox_temp = std::env::temp_dir().join("Roblox");
+        if roblox_temp.is_dir() {
+            freed += remove_folder_contents(&roblox_temp);
+        }
+        let downloads = self.store.paths().downloads_dir();
+        if downloads.is_dir() {
+            freed += remove_folder_contents(&downloads);
+        }
+        freed
     }
 
     pub fn mod_plan(&self) -> ModPlan {
@@ -1217,6 +1287,34 @@ impl AppState {
                 log_error!("the font could not be removed: {err}");
                 self.toasts
                     .error("The font could not be removed", Some(err.to_string()));
+            }
+        }
+    }
+
+    pub fn choose_death_sound(&mut self) {
+        let Some(source) = rfd::FileDialog::new()
+            .set_title("Choose a death sound for Roblox")
+            .add_filter("Audio", &["ogg", "wav", "mp3"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        match mods::install_custom_death_sound(&self.store.paths().mods_dir(), &source) {
+            Ok(()) => {
+                log_info!("installed custom death sound from {}", source.display());
+                self.toasts.success("Custom death sound installed");
+                self.settings.mods.enabled = true;
+                self.settings.mods.death_sound = crate::config::DeathSoundPreset::Custom;
+                self.mark_settings_dirty();
+                self.flush_settings();
+                self.refresh_mods(true);
+                self.apply_mods_now();
+            }
+            Err(err) => {
+                log_error!("custom death sound could not be installed: {err}");
+                self.toasts
+                    .error("That sound could not be installed", Some(err.to_string()));
             }
         }
     }
@@ -1532,4 +1630,24 @@ fn capitalise(text: &str) -> String {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
+}
+
+fn remove_folder_contents(dir: &std::path::Path) -> u64 {
+    let mut bytes = 0_u64;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Ok(meta) = entry.metadata() {
+                bytes += meta.len();
+            }
+            let _ = std::fs::remove_file(&path);
+        } else if path.is_dir() {
+            bytes += remove_folder_contents(&path);
+            let _ = std::fs::remove_dir(&path);
+        }
+    }
+    bytes
 }

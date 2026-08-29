@@ -316,7 +316,7 @@ fn alerts(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut
 
     match action {
         Some(Alert::InstallRoblox) => state.install_roblox(false),
-        Some(Alert::OpenFlags) => ui_state.page = Page::Flags,
+        Some(Alert::OpenFlags) => ui_state.page = Page::FFlags,
         Some(Alert::OpenAbout) => ui_state.page = Page::About,
         Some(Alert::OpenGame) => ui_state.page = Page::Game,
         Some(Alert::Unlock) => state.unlock_game_settings(),

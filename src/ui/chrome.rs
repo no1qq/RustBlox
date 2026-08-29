@@ -285,7 +285,7 @@ pub fn sidebar(
 
     for page in pages {
         let badge = match page {
-            Page::Flags if state.flags.active_count() > 0 => {
+            Page::FFlags if state.flags.active_count() > 0 => {
                 Some(state.flags.active_count().to_string())
             }
             _ => None,

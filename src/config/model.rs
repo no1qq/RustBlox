@@ -18,6 +18,7 @@ pub struct Settings {
     pub discord: DiscordSettings,
     pub appearance: AppearanceSettings,
     pub security: SecuritySettings,
+    pub shortcuts: ShortcutSettings,
     pub advanced: AdvancedSettings,
 }
 
@@ -32,6 +33,7 @@ impl Default for Settings {
             discord: DiscordSettings::default(),
             appearance: AppearanceSettings::default(),
             security: SecuritySettings::default(),
+            shortcuts: ShortcutSettings::default(),
             advanced: AdvancedSettings::default(),
         }
     }
@@ -45,6 +47,7 @@ impl Settings {
         notes.extend(self.discord.validate());
         notes.extend(self.appearance.validate());
         notes.extend(self.security.validate());
+        notes.extend(self.shortcuts.validate());
         notes.extend(self.advanced.validate());
         self.version = CURRENT_VERSION;
         notes
@@ -61,6 +64,8 @@ pub struct LaunchSettings {
     pub launch_timeout_secs: u64,
     pub quick_targets: Vec<QuickTarget>,
     pub track_activity: bool,
+    pub close_after_launch: bool,
+    pub multi_instance: bool,
 }
 
 impl Default for LaunchSettings {
@@ -73,6 +78,8 @@ impl Default for LaunchSettings {
             launch_timeout_secs: 30,
             quick_targets: Vec::new(),
             track_activity: true,
+            close_after_launch: true,
+            multi_instance: false,
         }
     }
 }
@@ -260,9 +267,62 @@ impl GameSettings {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum DeathSoundPreset {
+    #[default]
+    Default,
+    ClassicOof,
+    Custom,
+}
+
+impl DeathSoundPreset {
+    pub const ALL: [DeathSoundPreset; 3] = [
+        DeathSoundPreset::Default,
+        DeathSoundPreset::ClassicOof,
+        DeathSoundPreset::Custom,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DeathSoundPreset::Default => "Roblox Default",
+            DeathSoundPreset::ClassicOof => "Classic OOF (2006)",
+            DeathSoundPreset::Custom => "Custom Sound File",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum CursorPreset {
+    #[default]
+    Default,
+    Classic2015,
+    CleanDot,
+    Custom,
+}
+
+impl CursorPreset {
+    pub const ALL: [CursorPreset; 4] = [
+        CursorPreset::Default,
+        CursorPreset::Classic2015,
+        CursorPreset::CleanDot,
+        CursorPreset::Custom,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CursorPreset::Default => "Roblox Default",
+            CursorPreset::Classic2015 => "Classic 2015 Pointer",
+            CursorPreset::CleanDot => "Clean Dot / Crosshair",
+            CursorPreset::Custom => "Custom Cursor Pack",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct ModSettings {
     pub enabled: bool,
+    pub death_sound: DeathSoundPreset,
+    pub cursor: CursorPreset,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -271,6 +331,7 @@ pub struct DiscordSettings {
     pub enabled: bool,
     pub application_id: String,
     pub show_place_name: bool,
+    pub streamer_mode: bool,
 }
 
 impl Default for DiscordSettings {
@@ -279,6 +340,7 @@ impl Default for DiscordSettings {
             enabled: false,
             application_id: crate::discord::DEFAULT_APPLICATION_ID.to_owned(),
             show_place_name: true,
+            streamer_mode: false,
         }
     }
 }
@@ -301,6 +363,19 @@ impl DiscordSettings {
             notes.push("Discord was switched off because its application ID is not usable".into());
         }
         notes
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct ShortcutSettings {
+    pub start_menu: bool,
+    pub desktop: bool,
+}
+
+impl ShortcutSettings {
+    fn validate(&mut self) -> Vec<String> {
+        Vec::new()
     }
 }
 

@@ -18,6 +18,7 @@ enum Action {
     Register(&'static str),
     Restore(&'static str),
     Install { force: bool },
+    CleanCache,
 }
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, _ui_state: &mut UiState) {
@@ -52,6 +53,8 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, _ui_state: &mut UiState) 
 
     ui.add_space(theme.metrics.gap_lg);
     managed_install(ui, &theme, state, &mut action);
+    ui.add_space(theme.metrics.gap_lg);
+    cleanup(ui, &theme, &mut action);
     ui.add_space(theme.metrics.gap_lg);
     integrations(ui, &theme, state, &mut action);
 
@@ -372,11 +375,43 @@ fn integrations(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut
     );
 }
 
+fn cleanup(ui: &mut egui::Ui, _theme: &Theme, action: &mut Option<Action>) {
+    widgets::section(
+        ui,
+        "Storage & Cache Cleaner",
+        Some("Clears accumulated Roblox HTTP caches, log files, and old crash dumps."),
+        |ui| {
+            widgets::setting_row(
+                ui,
+                "Clean temporary caches",
+                "Frees disk space by clearing temporary downloads, textures, and crash dumps without affecting settings.",
+                |ui| {
+                    if widgets::Button::new("Clean cache now")
+                        .icon(Icon::Trash)
+                        .tone(widgets::Tone::Neutral)
+                        .size(widgets::Size::Small)
+                        .show(ui)
+                        .clicked()
+                    {
+                        *action = Some(Action::CleanCache);
+                    }
+                },
+            );
+        },
+    );
+}
+
 fn apply(state: &mut AppState, action: Action) {
     match action {
         Action::OpenPath(path) => state.open_path(path),
         Action::Install { force } => state.install_roblox(force),
         Action::Register(scheme) => state.register_protocol(scheme),
         Action::Restore(scheme) => state.restore_protocol(scheme),
+        Action::CleanCache => {
+            let freed = state.clean_roblox_cache();
+            state
+                .toasts
+                .success(format!("Freed {} of cache and dumps", format_size(freed)));
+        }
     }
 }

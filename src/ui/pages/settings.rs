@@ -210,6 +210,17 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
                 },
             );
             ui.add_space(theme.metrics.gap_md);
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
+                "Multiple Roblox instances",
+                "Allows opening multiple Roblox clients concurrently without singleton mutex conflicts.",
+                |ui| {
+                    changed |=
+                        widgets::toggle(ui, &mut state.settings.launch.multi_instance).changed();
+                },
+            );
+            ui.add_space(theme.metrics.gap_md);
             widgets::setting_row(
                 ui,
                 "How long to wait for the client",
@@ -274,6 +285,19 @@ fn discord(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) -> bool {
                 "RustBlox stays open while Roblox runs so it can keep the status up to date, and closes with it. Discord has to be running too.",
                 |ui| {
                     if widgets::toggle(ui, &mut state.settings.discord.enabled).changed() {
+                        changed = true;
+                        restart = true;
+                    }
+                },
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
+                "Streamer & privacy mode",
+                "Hides the specific game and place details from Discord Rich Presence.",
+                |ui| {
+                    if widgets::toggle(ui, &mut state.settings.discord.streamer_mode).changed() {
                         changed = true;
                         restart = true;
                     }

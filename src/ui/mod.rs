@@ -29,7 +29,7 @@ pub enum Page {
     Mods,
     Shortcuts,
     Installation,
-    Flags,
+    FFlags,
     Settings,
     About,
 }
@@ -41,7 +41,7 @@ impl Page {
         Page::Mods,
         Page::Shortcuts,
         Page::Installation,
-        Page::Flags,
+        Page::FFlags,
         Page::Settings,
         Page::About,
     ];
@@ -63,7 +63,7 @@ impl Page {
             Page::Mods => "Mods",
             Page::Shortcuts => "Shortcuts",
             Page::Installation => "Installation",
-            Page::Flags => "Flags",
+            Page::FFlags => "FFlags",
             Page::Settings => "Settings",
             Page::About => "About",
         }
@@ -76,7 +76,7 @@ impl Page {
             Page::Mods => icons::Icon::Layers,
             Page::Shortcuts => icons::Icon::External,
             Page::Installation => icons::Icon::Package,
-            Page::Flags => icons::Icon::Flag,
+            Page::FFlags => icons::Icon::Flag,
             Page::Settings => icons::Icon::Sliders,
             Page::About => icons::Icon::Info,
         }
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn flags_installs_and_the_advanced_tab_are_hidden_until_asked_for() {
-        for page in [Page::Flags, Page::Installation] {
+        for page in [Page::FFlags, Page::Installation] {
             assert!(!Page::visible(false).contains(&page));
             assert!(Page::visible(true).contains(&page));
         }

@@ -7,16 +7,16 @@ mod windows;
 
 #[cfg(windows)]
 pub use windows::{
-    attach_parent_console, clean_roblox_dir_proxies, file_version, find_processes, free_space,
-    hide_tray_icon, open_path, open_url, protocol, run_thewatcher_service, shortcut,
-    spawn_detached, spawn_elevated, system_dark_mode,
+    attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
+    find_processes, free_space, hide_tray_icon, open_path, open_url, protocol,
+    run_thewatcher_service, shortcut, spawn_detached, spawn_elevated, system_dark_mode,
 };
 
 #[cfg(not(windows))]
 pub use fallback::{
-    attach_parent_console, clean_roblox_dir_proxies, file_version, find_processes, free_space,
-    hide_tray_icon, open_path, open_url, protocol, run_thewatcher_service, shortcut,
-    spawn_detached, spawn_elevated, system_dark_mode,
+    attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
+    find_processes, free_space, hide_tray_icon, open_path, open_url, protocol,
+    run_thewatcher_service, shortcut, spawn_detached, spawn_elevated, system_dark_mode,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

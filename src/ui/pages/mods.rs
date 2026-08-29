@@ -15,6 +15,8 @@ enum Action {
     OpenFolder,
     ChooseFont,
     ClearFont,
+    SetDeathSound(crate::config::DeathSoundPreset),
+    SetCursor(crate::config::CursorPreset),
 }
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
@@ -48,9 +50,13 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
 
     control(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
-    contents(ui, &theme, state);
+    sound_preset(ui, &theme, state, &mut action);
+    ui.add_space(theme.metrics.gap_lg);
+    cursor_preset(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
     font(ui, &theme, state, &mut action);
+    ui.add_space(theme.metrics.gap_lg);
+    contents(ui, &theme, state);
 
     match action {
         Some(Action::Toggle) => {
@@ -73,6 +79,27 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
         }
         Some(Action::ChooseFont) => state.choose_font(),
         Some(Action::ClearFont) => state.clear_font(),
+        Some(Action::SetDeathSound(crate::config::DeathSoundPreset::Custom)) => {
+            state.choose_death_sound();
+        }
+        Some(Action::SetDeathSound(preset)) => {
+            state.settings.mods.death_sound = preset;
+            state.mark_settings_dirty();
+            state.flush_settings();
+            let _ = crate::roblox::mods::apply_death_sound_preset(
+                &state.store.paths().mods_dir(),
+                preset,
+            );
+            state.refresh_mods(true);
+            state.apply_mods_now();
+        }
+        Some(Action::SetCursor(preset)) => {
+            state.settings.mods.cursor = preset;
+            state.mark_settings_dirty();
+            state.flush_settings();
+            state.refresh_mods(true);
+            state.apply_mods_now();
+        }
         None => {}
     }
 }
@@ -261,6 +288,66 @@ fn font(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<
                     .color(theme.palette.text_faint),
                 );
             }
+        },
+    );
+}
+
+fn sound_preset(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
+    let current = state.settings.mods.death_sound;
+
+    widgets::section(
+        ui,
+        "Death Sound",
+        Some("Changes the player character reset/death sound effect."),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+                for preset in crate::config::DeathSoundPreset::ALL {
+                    let active = current == preset;
+                    if widgets::Button::new(preset.label())
+                        .tone(if active {
+                            widgets::Tone::Primary
+                        } else {
+                            widgets::Tone::Neutral
+                        })
+                        .size(widgets::Size::Small)
+                        .show(ui)
+                        .clicked()
+                    {
+                        *action = Some(Action::SetDeathSound(preset));
+                    }
+                }
+            });
+        },
+    );
+}
+
+fn cursor_preset(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
+    let current = state.settings.mods.cursor;
+
+    widgets::section(
+        ui,
+        "Mouse Cursor",
+        Some("Replaces the in-game Roblox pointer and shift lock reticle."),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+                for preset in crate::config::CursorPreset::ALL {
+                    let active = current == preset;
+                    if widgets::Button::new(preset.label())
+                        .tone(if active {
+                            widgets::Tone::Primary
+                        } else {
+                            widgets::Tone::Neutral
+                        })
+                        .size(widgets::Size::Small)
+                        .show(ui)
+                        .clicked()
+                    {
+                        *action = Some(Action::SetCursor(preset));
+                    }
+                }
+            });
         },
     );
 }

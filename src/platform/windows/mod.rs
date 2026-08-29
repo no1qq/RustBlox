@@ -300,3 +300,128 @@ pub fn system_dark_mode() -> Option<bool> {
     let light: u32 = key.get_value("AppsUseLightTheme").ok()?;
     Some(light == 0)
 }
+
+pub fn close_roblox_singleton_mutex() {
+    let procs = find_processes(&["RobloxPlayerBeta.exe"]);
+    for p in procs {
+        close_process_mutex_handle(p.pid, "ROBLOX_singletonMutex");
+        close_process_mutex_handle(p.pid, "ROBLOX_singletonEvent");
+    }
+}
+
+fn close_process_mutex_handle(pid: u32, target_name: &str) {
+    type NtQuerySysInfoFn =
+        unsafe extern "system" fn(u32, *mut std::ffi::c_void, u32, *mut u32) -> i32;
+    type NtQueryObjFn =
+        unsafe extern "system" fn(HANDLE, u32, *mut std::ffi::c_void, u32, *mut u32) -> i32;
+
+    unsafe {
+        let ntdll = windows_sys::Win32::System::LibraryLoader::GetModuleHandleA(
+            c"ntdll.dll".as_ptr() as *const u8,
+        );
+        if ntdll.is_null() {
+            return;
+        }
+        let query_sys_ptr = windows_sys::Win32::System::LibraryLoader::GetProcAddress(
+            ntdll,
+            c"NtQuerySystemInformation".as_ptr() as *const u8,
+        );
+        let query_obj_ptr = windows_sys::Win32::System::LibraryLoader::GetProcAddress(
+            ntdll,
+            c"NtQueryObject".as_ptr() as *const u8,
+        );
+        let (Some(sys_ptr), Some(obj_ptr)) = (query_sys_ptr, query_obj_ptr) else {
+            return;
+        };
+        let query_sys: NtQuerySysInfoFn = std::mem::transmute(sys_ptr);
+        let query_obj: NtQueryObjFn = std::mem::transmute(obj_ptr);
+
+        let process_handle = OpenProcess(0x0040 | 0x00100000, 0, pid);
+        if process_handle.is_null() || process_handle == INVALID_HANDLE_VALUE {
+            return;
+        }
+        let _proc_guard = OwnedHandle(process_handle);
+
+        let buf_size: u32 = 0x200000;
+        let mut buffer: Vec<u8> = vec![0; buf_size as usize];
+        let mut return_length: u32 = 0;
+
+        let status = query_sys(
+            64,
+            buffer.as_mut_ptr() as *mut _,
+            buf_size,
+            &mut return_length,
+        );
+        if status < 0 {
+            return;
+        }
+
+        #[repr(C)]
+        struct SystemHandleTableEntryInfoEx {
+            object: *mut std::ffi::c_void,
+            unique_process_id: usize,
+            handle_value: usize,
+            granted_access: u32,
+            creator_back_trace_index: u16,
+            object_type_index: u16,
+            handle_attributes: u32,
+            reserved: u32,
+        }
+
+        let count_ptr = buffer.as_ptr() as *const usize;
+        let handle_count = *count_ptr;
+        let entries_ptr = buffer.as_ptr().add(std::mem::size_of::<usize>() * 2)
+            as *const SystemHandleTableEntryInfoEx;
+
+        for i in 0..handle_count {
+            let entry = &*entries_ptr.add(i);
+            if entry.unique_process_id == pid as usize {
+                let mut dup_handle: HANDLE = std::ptr::null_mut();
+                let dup_res = windows_sys::Win32::Foundation::DuplicateHandle(
+                    process_handle,
+                    entry.handle_value as HANDLE,
+                    windows_sys::Win32::System::Threading::GetCurrentProcess(),
+                    &mut dup_handle,
+                    0,
+                    0,
+                    0x00000002,
+                );
+                if dup_res != 0 && !dup_handle.is_null() {
+                    let mut name_buf = vec![0_u8; 1024];
+                    let mut name_ret = 0_u32;
+                    let obj_res = query_obj(
+                        dup_handle,
+                        1,
+                        name_buf.as_mut_ptr() as *mut _,
+                        name_buf.len() as u32,
+                        &mut name_ret,
+                    );
+                    if obj_res >= 0 {
+                        let name_len = *(name_buf.as_ptr() as *const u16) as usize / 2;
+                        let name_chars =
+                            name_buf.as_ptr().add(std::mem::size_of::<usize>() * 2) as *const u16;
+                        if !name_chars.is_null() && name_len > 0 {
+                            let name_slice = std::slice::from_raw_parts(name_chars, name_len);
+                            let obj_name = String::from_utf16_lossy(name_slice);
+                            if obj_name.contains(target_name) {
+                                CloseHandle(dup_handle);
+                                let mut dummy: HANDLE = std::ptr::null_mut();
+                                windows_sys::Win32::Foundation::DuplicateHandle(
+                                    process_handle,
+                                    entry.handle_value as HANDLE,
+                                    0 as HANDLE,
+                                    &mut dummy,
+                                    0,
+                                    0,
+                                    0x00000001,
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    CloseHandle(dup_handle);
+                }
+            }
+        }
+    }
+}

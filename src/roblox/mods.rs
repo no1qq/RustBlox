@@ -359,6 +359,39 @@ pub fn remove_font(mods_root: &Path) -> Result<()> {
     Ok(())
 }
 
+const CLASSIC_OOF_BYTES: &[u8] = include_bytes!("../../assets/sounds/ouch.ogg");
+
+pub fn apply_death_sound_preset(
+    mods_root: &Path,
+    preset: crate::config::DeathSoundPreset,
+) -> Result<()> {
+    let target = mods_root.join("content").join("sounds").join("ouch.ogg");
+    match preset {
+        crate::config::DeathSoundPreset::ClassicOof => {
+            if let Some(parent) = target.parent() {
+                fs::ensure_dir(parent)?;
+            }
+            fs::write_atomic(&target, CLASSIC_OOF_BYTES)?;
+        }
+        crate::config::DeathSoundPreset::Default => {
+            if target.is_file() {
+                let _ = std::fs::remove_file(&target);
+                prune_empty(mods_root);
+            }
+        }
+        crate::config::DeathSoundPreset::Custom => {}
+    }
+    Ok(())
+}
+
+pub fn install_custom_death_sound(mods_root: &Path, source: &Path) -> Result<()> {
+    let target = mods_root.join("content").join("sounds").join("ouch.ogg");
+    if let Some(parent) = target.parent() {
+        fs::ensure_dir(parent)?;
+    }
+    copy(source, &target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

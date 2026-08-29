@@ -64,263 +64,277 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
     match icon {
         Icon::Home => {
             path(vec![
-                grid.at(3.5, 10.5),
-                grid.at(12.0, 3.5),
-                grid.at(20.5, 10.5),
+                grid.at(3.0, 10.0),
+                grid.at(12.0, 3.0),
+                grid.at(21.0, 10.0),
+                grid.at(21.0, 19.0),
+                grid.at(19.0, 21.0),
+                grid.at(5.0, 21.0),
+                grid.at(3.0, 19.0),
+                grid.at(3.0, 10.0),
             ]);
             path(vec![
-                grid.at(5.5, 9.5),
-                grid.at(5.5, 20.0),
-                grid.at(18.5, 20.0),
-                grid.at(18.5, 9.5),
-            ]);
-            path(vec![
-                grid.at(9.8, 20.0),
-                grid.at(9.8, 14.0),
-                grid.at(14.2, 14.0),
-                grid.at(14.2, 20.0),
+                grid.at(9.0, 21.0),
+                grid.at(9.0, 12.0),
+                grid.at(15.0, 12.0),
+                grid.at(15.0, 21.0),
             ]);
         }
         Icon::Rocket => {
             closed(vec![
-                grid.at(12.0, 2.6),
-                grid.at(16.4, 8.6),
-                grid.at(16.4, 15.2),
-                grid.at(12.0, 18.4),
-                grid.at(7.6, 15.2),
-                grid.at(7.6, 8.6),
-            ]);
-            painter.circle_stroke(grid.at(12.0, 9.6), grid.len(2.0), stroke);
-            path(vec![
-                grid.at(7.6, 13.4),
-                grid.at(4.4, 17.4),
-                grid.at(8.2, 17.0),
+                grid.at(9.0, 12.0),
+                grid.at(11.0, 8.0),
+                grid.at(22.0, 2.0),
+                grid.at(16.0, 13.0),
+                grid.at(12.0, 15.0),
             ]);
             path(vec![
-                grid.at(16.4, 13.4),
-                grid.at(19.6, 17.4),
-                grid.at(15.8, 17.0),
+                grid.at(12.0, 15.0),
+                grid.at(12.0, 20.0),
+                grid.at(16.0, 18.0),
             ]);
             path(vec![
-                grid.at(10.4, 19.4),
-                grid.at(12.0, 21.6),
-                grid.at(13.6, 19.4),
+                grid.at(4.5, 16.5),
+                grid.at(2.5, 21.5),
+                grid.at(7.5, 19.5),
+            ]);
+            path(vec![
+                grid.at(9.0, 12.0),
+                grid.at(4.0, 12.0),
+                grid.at(6.0, 8.0),
+                grid.at(9.0, 12.0),
             ]);
         }
         Icon::Layers => {
             closed(vec![
-                grid.at(12.0, 3.4),
-                grid.at(20.6, 8.0),
-                grid.at(12.0, 12.6),
-                grid.at(3.4, 8.0),
+                grid.at(12.0, 2.0),
+                grid.at(21.0, 7.0),
+                grid.at(21.0, 17.0),
+                grid.at(12.0, 22.0),
+                grid.at(3.0, 17.0),
+                grid.at(3.0, 7.0),
             ]);
+            path(vec![grid.at(12.0, 22.0), grid.at(12.0, 12.0)]);
             path(vec![
-                grid.at(3.4, 12.0),
-                grid.at(12.0, 16.6),
-                grid.at(20.6, 12.0),
+                grid.at(3.3, 7.0),
+                grid.at(12.0, 12.0),
+                grid.at(20.7, 7.0),
             ]);
-            path(vec![
-                grid.at(3.4, 16.0),
-                grid.at(12.0, 20.6),
-                grid.at(20.6, 16.0),
-            ]);
+            path(vec![grid.at(7.5, 4.3), grid.at(16.5, 9.5)]);
         }
         Icon::Gauge => {
-            let centre = grid.at(12.0, 15.0);
-            let radius = grid.len(8.0);
-            let mut arc = Vec::new();
-            for step in 0..=24 {
-                let angle = std::f32::consts::PI * (1.0 + step as f32 / 24.0);
-                arc.push(centre + Vec2::new(angle.cos() * radius, angle.sin() * radius));
-            }
-            path(arc);
-            path(vec![centre, grid.at(16.0, 10.5)]);
-            painter.circle_filled(centre, grid.len(1.4), color);
+            path(vec![grid.at(2.0, 3.0), grid.at(2.0, 21.0)]);
+            closed(vec![
+                grid.at(2.0, 5.0),
+                grid.at(20.0, 5.0),
+                grid.at(22.0, 7.0),
+                grid.at(22.0, 15.0),
+                grid.at(20.0, 17.0),
+                grid.at(2.0, 17.0),
+            ]);
+            path(vec![
+                grid.at(7.0, 17.0),
+                grid.at(7.0, 20.0),
+                grid.at(14.0, 20.0),
+                grid.at(14.0, 17.0),
+            ]);
+            painter.circle_stroke(grid.at(8.0, 11.0), grid.len(2.0), stroke);
+            painter.circle_stroke(grid.at(16.0, 11.0), grid.len(2.0), stroke);
         }
         Icon::Sliders => {
-            for (index, y) in [6.5_f32, 12.0, 17.5].iter().enumerate() {
-                path(vec![grid.at(4.0, *y), grid.at(20.0, *y)]);
-                let knob = [15.0, 9.0, 13.0][index];
-                painter.circle_filled(grid.at(knob, *y), grid.len(2.4), color);
-            }
+            path(vec![grid.at(3.0, 5.0), grid.at(10.0, 5.0)]);
+            path(vec![grid.at(14.0, 5.0), grid.at(21.0, 5.0)]);
+            path(vec![grid.at(14.0, 3.0), grid.at(14.0, 7.0)]);
+
+            path(vec![grid.at(3.0, 12.0), grid.at(8.0, 12.0)]);
+            path(vec![grid.at(12.0, 12.0), grid.at(21.0, 12.0)]);
+            path(vec![grid.at(8.0, 10.0), grid.at(8.0, 14.0)]);
+
+            path(vec![grid.at(3.0, 19.0), grid.at(12.0, 19.0)]);
+            path(vec![grid.at(16.0, 19.0), grid.at(21.0, 19.0)]);
+            path(vec![grid.at(16.0, 17.0), grid.at(16.0, 21.0)]);
         }
         Icon::Flag => {
-            path(vec![grid.at(6.0, 3.6), grid.at(6.0, 20.8)]);
+            path(vec![grid.at(4.0, 22.0), grid.at(4.0, 4.0)]);
             closed(vec![
-                grid.at(6.0, 4.6),
-                grid.at(18.6, 4.6),
-                grid.at(15.4, 8.8),
-                grid.at(18.6, 13.0),
-                grid.at(6.0, 13.0),
+                grid.at(4.0, 4.0),
+                grid.at(8.0, 2.0),
+                grid.at(15.0, 4.0),
+                grid.at(20.0, 3.2),
+                grid.at(20.0, 14.0),
+                grid.at(16.0, 16.0),
+                grid.at(8.0, 14.0),
+                grid.at(4.0, 15.5),
             ]);
         }
         Icon::Info => {
-            painter.circle_stroke(grid.at(12.0, 12.0), grid.len(8.8), stroke);
+            painter.circle_stroke(grid.at(12.0, 12.0), grid.len(10.0), stroke);
+            path(vec![grid.at(12.0, 16.0), grid.at(12.0, 12.0)]);
             painter.circle_filled(grid.at(12.0, 8.0), grid.len(1.15), color);
-            path(vec![grid.at(12.0, 11.2), grid.at(12.0, 16.6)]);
         }
         Icon::Folder => {
             closed(vec![
-                grid.at(3.4, 6.4),
-                grid.at(9.6, 6.4),
-                grid.at(11.4, 8.8),
-                grid.at(20.6, 8.8),
-                grid.at(20.6, 18.6),
-                grid.at(3.4, 18.6),
+                grid.at(4.0, 20.0),
+                grid.at(20.0, 20.0),
+                grid.at(22.0, 18.0),
+                grid.at(22.0, 8.0),
+                grid.at(20.0, 6.0),
+                grid.at(12.0, 6.0),
+                grid.at(9.6, 3.9),
+                grid.at(7.9, 3.0),
+                grid.at(4.0, 3.0),
+                grid.at(2.0, 5.0),
+                grid.at(2.0, 18.0),
             ]);
         }
         Icon::Refresh => {
             let center = grid.at(12.0, 12.0);
-            let radius = grid.len(7.6);
-            painter.add(Shape::line(arc(center, radius, -0.55, 4.2, 26), stroke));
-            let tip = arc(center, radius, 4.2, 4.2, 1)[0];
-            closed(vec![
-                tip,
-                tip + Vec2::new(grid.len(-1.0), grid.len(-3.4)),
-                tip + Vec2::new(grid.len(3.2), grid.len(-1.9)),
+            let radius = grid.len(8.0);
+            painter.add(Shape::line(arc(center, radius, -0.5, 4.8, 28), stroke));
+            path(vec![
+                grid.at(16.0, 3.0),
+                grid.at(21.0, 3.0),
+                grid.at(21.0, 8.0),
             ]);
         }
         Icon::Warning => {
             closed(vec![
-                grid.at(12.0, 3.4),
-                grid.at(21.4, 19.8),
-                grid.at(2.6, 19.8),
+                grid.at(12.0, 3.0),
+                grid.at(21.5, 20.0),
+                grid.at(2.5, 20.0),
             ]);
-            path(vec![grid.at(12.0, 9.6), grid.at(12.0, 14.4)]);
-            painter.circle_filled(grid.at(12.0, 17.2), grid.len(1.1), color);
+            path(vec![grid.at(12.0, 9.0), grid.at(12.0, 14.0)]);
+            painter.circle_filled(grid.at(12.0, 17.0), grid.len(1.0), color);
         }
         Icon::Check => {
             path(vec![
-                grid.at(4.8, 12.6),
-                grid.at(9.8, 17.6),
-                grid.at(19.2, 6.8),
+                grid.at(4.0, 12.0),
+                grid.at(9.0, 17.0),
+                grid.at(20.0, 6.0),
             ]);
         }
         Icon::Cross => {
-            path(vec![grid.at(6.2, 6.2), grid.at(17.8, 17.8)]);
-            path(vec![grid.at(17.8, 6.2), grid.at(6.2, 17.8)]);
+            path(vec![grid.at(6.0, 6.0), grid.at(18.0, 18.0)]);
+            path(vec![grid.at(18.0, 6.0), grid.at(6.0, 18.0)]);
         }
         Icon::Plus => {
-            path(vec![grid.at(12.0, 5.2), grid.at(12.0, 18.8)]);
-            path(vec![grid.at(5.2, 12.0), grid.at(18.8, 12.0)]);
+            path(vec![grid.at(12.0, 5.0), grid.at(12.0, 19.0)]);
+            path(vec![grid.at(5.0, 12.0), grid.at(19.0, 12.0)]);
         }
         Icon::Trash => {
-            path(vec![grid.at(4.4, 7.0), grid.at(19.6, 7.0)]);
+            path(vec![grid.at(3.0, 6.0), grid.at(21.0, 6.0)]);
             path(vec![
-                grid.at(9.2, 7.0),
-                grid.at(9.2, 4.6),
-                grid.at(14.8, 4.6),
-                grid.at(14.8, 7.0),
+                grid.at(8.0, 6.0),
+                grid.at(8.0, 4.0),
+                grid.at(10.0, 2.0),
+                grid.at(14.0, 2.0),
+                grid.at(16.0, 4.0),
+                grid.at(16.0, 6.0),
             ]);
-            path(vec![
-                grid.at(6.4, 7.0),
-                grid.at(7.4, 20.0),
-                grid.at(16.6, 20.0),
-                grid.at(17.6, 7.0),
+            closed(vec![
+                grid.at(5.0, 6.0),
+                grid.at(7.0, 20.0),
+                grid.at(17.0, 20.0),
+                grid.at(19.0, 6.0),
             ]);
-            path(vec![grid.at(10.6, 10.6), grid.at(10.9, 16.6)]);
-            path(vec![grid.at(13.4, 10.6), grid.at(13.1, 16.6)]);
+            path(vec![grid.at(10.0, 11.0), grid.at(10.0, 17.0)]);
+            path(vec![grid.at(14.0, 11.0), grid.at(14.0, 17.0)]);
         }
         Icon::ChevronRight => {
+            path(vec![grid.at(5.0, 12.0), grid.at(19.0, 12.0)]);
             path(vec![
-                grid.at(9.4, 5.6),
-                grid.at(16.0, 12.0),
-                grid.at(9.4, 18.4),
+                grid.at(12.0, 5.0),
+                grid.at(19.0, 12.0),
+                grid.at(12.0, 19.0),
             ]);
         }
         Icon::ChevronDown => {
+            path(vec![grid.at(12.0, 5.0), grid.at(12.0, 19.0)]);
             path(vec![
-                grid.at(5.6, 9.4),
-                grid.at(12.0, 16.0),
-                grid.at(18.4, 9.4),
+                grid.at(5.0, 12.0),
+                grid.at(12.0, 19.0),
+                grid.at(19.0, 12.0),
             ]);
         }
         Icon::External => {
-            path(vec![
-                grid.at(13.0, 4.6),
-                grid.at(19.4, 4.6),
-                grid.at(19.4, 11.0),
+            closed(vec![
+                grid.at(3.0, 3.0),
+                grid.at(21.0, 3.0),
+                grid.at(21.0, 21.0),
+                grid.at(3.0, 21.0),
             ]);
-            path(vec![grid.at(19.4, 4.6), grid.at(11.2, 12.8)]);
-            path(vec![
-                grid.at(16.4, 13.6),
-                grid.at(16.4, 19.4),
-                grid.at(4.6, 19.4),
-                grid.at(4.6, 7.6),
-                grid.at(10.4, 7.6),
-            ]);
+            path(vec![grid.at(9.0, 15.0), grid.at(15.0, 9.0)]);
         }
         Icon::Play => {
             painter.add(Shape::convex_polygon(
-                vec![grid.at(8.0, 5.2), grid.at(19.0, 12.0), grid.at(8.0, 18.8)],
+                vec![grid.at(6.0, 4.5), grid.at(19.5, 12.0), grid.at(6.0, 19.5)],
                 color,
                 Stroke::NONE,
             ));
         }
         Icon::Package => {
             closed(vec![
-                grid.at(12.0, 3.2),
-                grid.at(20.2, 7.6),
-                grid.at(20.2, 16.4),
-                grid.at(12.0, 20.8),
-                grid.at(3.8, 16.4),
-                grid.at(3.8, 7.6),
+                grid.at(21.0, 8.0),
+                grid.at(12.0, 3.0),
+                grid.at(3.0, 8.0),
+                grid.at(3.0, 16.0),
+                grid.at(12.0, 21.0),
+                grid.at(21.0, 16.0),
             ]);
             path(vec![
-                grid.at(3.8, 7.6),
+                grid.at(3.3, 7.0),
                 grid.at(12.0, 12.0),
-                grid.at(20.2, 7.6),
+                grid.at(20.7, 7.0),
             ]);
-            path(vec![grid.at(12.0, 12.0), grid.at(12.0, 20.8)]);
+            path(vec![grid.at(12.0, 22.0), grid.at(12.0, 12.0)]);
         }
         Icon::Search => {
-            painter.circle_stroke(grid.at(10.6, 10.6), grid.len(6.4), stroke);
-            path(vec![grid.at(15.4, 15.4), grid.at(20.2, 20.2)]);
+            painter.circle_stroke(grid.at(11.0, 11.0), grid.len(7.0), stroke);
+            path(vec![grid.at(16.0, 16.0), grid.at(21.0, 21.0)]);
         }
         Icon::Copy => {
-            closed(vec![
-                grid.at(8.6, 3.8),
-                grid.at(20.2, 3.8),
-                grid.at(20.2, 15.4),
-                grid.at(8.6, 15.4),
-            ]);
             path(vec![
-                grid.at(15.4, 15.4),
-                grid.at(15.4, 20.2),
-                grid.at(3.8, 20.2),
-                grid.at(3.8, 8.6),
-                grid.at(8.6, 8.6),
+                grid.at(3.0, 16.0),
+                grid.at(7.0, 20.0),
+                grid.at(11.0, 16.0),
             ]);
+            path(vec![grid.at(7.0, 4.0), grid.at(7.0, 20.0)]);
+            path(vec![
+                grid.at(21.0, 8.0),
+                grid.at(17.0, 4.0),
+                grid.at(13.0, 8.0),
+            ]);
+            path(vec![grid.at(17.0, 4.0), grid.at(17.0, 20.0)]);
         }
         Icon::Minimize => {
-            path(vec![grid.at(6.0, 12.0), grid.at(18.0, 12.0)]);
+            path(vec![grid.at(5.0, 12.0), grid.at(19.0, 12.0)]);
         }
         Icon::Maximize => {
             closed(vec![
-                grid.at(6.4, 6.4),
-                grid.at(17.6, 6.4),
-                grid.at(17.6, 17.6),
-                grid.at(6.4, 17.6),
+                grid.at(5.0, 5.0),
+                grid.at(19.0, 5.0),
+                grid.at(19.0, 19.0),
+                grid.at(5.0, 19.0),
             ]);
         }
         Icon::Restore => {
             closed(vec![
-                grid.at(5.6, 8.8),
-                grid.at(15.2, 8.8),
-                grid.at(15.2, 18.4),
-                grid.at(5.6, 18.4),
+                grid.at(5.0, 9.0),
+                grid.at(15.0, 9.0),
+                grid.at(15.0, 19.0),
+                grid.at(5.0, 19.0),
             ]);
             path(vec![
-                grid.at(8.8, 8.8),
-                grid.at(8.8, 5.6),
-                grid.at(18.4, 5.6),
-                grid.at(18.4, 15.2),
-                grid.at(15.2, 15.2),
+                grid.at(9.0, 9.0),
+                grid.at(9.0, 5.0),
+                grid.at(19.0, 5.0),
+                grid.at(19.0, 15.0),
+                grid.at(15.0, 15.0),
             ]);
         }
         Icon::Close => {
-            path(vec![grid.at(7.0, 7.0), grid.at(17.0, 17.0)]);
-            path(vec![grid.at(17.0, 7.0), grid.at(7.0, 17.0)]);
+            path(vec![grid.at(6.0, 6.0), grid.at(18.0, 18.0)]);
+            path(vec![grid.at(18.0, 6.0), grid.at(6.0, 18.0)]);
         }
     }
 }

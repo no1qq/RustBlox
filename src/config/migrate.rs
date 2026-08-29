@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-pub const CURRENT_VERSION: u32 = 7;
+pub const CURRENT_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Migration {
@@ -50,6 +50,10 @@ fn steps_for(version: u32) -> Option<(&'static str, Step)> {
             step_v5_to_v6,
         )),
         6 => Some(("added the security section", step_v6_to_v7)),
+        7 => Some((
+            "added the shortcuts and multi-instance section",
+            step_v7_to_v8,
+        )),
         _ => None,
     }
 }
@@ -132,6 +136,28 @@ fn step_v6_to_v7(root: &mut Map<String, Value>) {
         security
             .entry("auto_terminate_threats")
             .or_insert(Value::Bool(true));
+    }
+}
+
+fn step_v7_to_v8(root: &mut Map<String, Value>) {
+    let shortcuts = root
+        .entry("shortcuts")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(shortcuts) = shortcuts.as_object_mut() {
+        shortcuts.entry("start_menu").or_insert(Value::Bool(false));
+        shortcuts.entry("desktop").or_insert(Value::Bool(false));
+    }
+    let launch = root
+        .entry("launch")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(launch) = launch.as_object_mut() {
+        launch.entry("multi_instance").or_insert(Value::Bool(false));
+    }
+    let discord = root
+        .entry("discord")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(discord) = discord.as_object_mut() {
+        discord.entry("streamer_mode").or_insert(Value::Bool(false));
     }
 }
 
@@ -305,6 +331,18 @@ mod tests {
         assert_eq!(value["security"]["anticheat_enabled"], json!(true));
         assert_eq!(value["security"]["auto_terminate_threats"], json!(true));
         assert!(outcome.note().unwrap().contains("security"));
+    }
+
+    #[test]
+    fn the_shortcuts_and_multi_instance_section_arrives() {
+        let mut value = json!({"version": 7});
+        let outcome = migrate(&mut value);
+
+        assert_eq!(value["shortcuts"]["start_menu"], json!(false));
+        assert_eq!(value["shortcuts"]["desktop"], json!(false));
+        assert_eq!(value["launch"]["multi_instance"], json!(false));
+        assert_eq!(value["discord"]["streamer_mode"], json!(false));
+        assert!(outcome.note().unwrap().contains("shortcuts"));
     }
 
     #[test]

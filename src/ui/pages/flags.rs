@@ -31,7 +31,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
 
     widgets::page_header(
         ui,
-        "Flags",
+        "FFlags",
         "Applied as soon as you change them, and written again before Roblox starts.",
         |ui| {
             if widgets::Button::primary("Reset flags")
