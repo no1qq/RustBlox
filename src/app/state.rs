@@ -572,24 +572,15 @@ impl AppState {
         if let Some(install) = self.detection.active() {
             let install_dir = install.version_dir.clone();
             if let Ok(exe) = std::env::current_exe() {
-                let elevated_result = platform::spawn_elevated(
+                let _ = platform::spawn_detached(
                     &exe,
                     &[
                         "--thewatcher".to_string(),
                         "0".to_string(),
                         install_dir.display().to_string(),
                     ],
+                    None,
                 );
-
-                if let Err(err) = elevated_result {
-                    log_warn!("elevation cancelled or failed: {err}");
-                    self.flow.fail(
-                        "Administrator elevation was declined.".into(),
-                        Some("TheWatcher Anti-Cheat requires administrator rights to run.".into()),
-                        true,
-                    );
-                    return;
-                }
             }
         }
 

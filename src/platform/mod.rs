@@ -6,6 +6,7 @@ mod fallback;
 mod windows;
 
 #[cfg(windows)]
+#[allow(unused_imports)]
 pub use windows::{
     attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
     find_processes, free_space, hide_tray_icon, open_path, open_url, protocol,
@@ -13,6 +14,7 @@ pub use windows::{
 };
 
 #[cfg(not(windows))]
+#[allow(unused_imports)]
 pub use fallback::{
     attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
     find_processes, free_space, hide_tray_icon, open_path, open_url, protocol,
