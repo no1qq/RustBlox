@@ -381,6 +381,13 @@ pub fn is_valid_whitelisted_path(name: &str, path: Option<&str>) -> bool {
             || path_lower.starts_with(r"c:\program files\windowsapps\");
     }
 
+    if file_name == "robloxplayerbeta.exe" || file_name == "robloxstudiobeta.exe" {
+        return path_lower.contains(r"\rustblox\data\versions\")
+            || path_lower.contains(r"\roblox\versions\")
+            || path_lower.contains(r"\program files (x86)\roblox\versions\")
+            || path_lower.contains(r"\program files\roblox\versions\");
+    }
+
     if path_lower.contains(r"\temp\") || path_lower.contains("matrix") {
         return false;
     }
@@ -587,10 +594,18 @@ pub fn terminate_threat_pid(pid: u32) -> bool {
         return false;
     };
     let name_lower = name.to_ascii_lowercase();
+    let proc_path = get_process_image_path(pid);
+    let is_trusted = is_valid_whitelisted_path(&name_lower, proc_path.as_deref());
+
     let is_explicit_cheat = CHEAT_PROCESS_KEYWORDS
         .iter()
         .any(|kw| name_lower.contains(kw));
-    if !is_explicit_cheat {
+    let is_impostor = !is_trusted
+        && (name_lower == "robloxplayerbeta.exe"
+            || name_lower == "robloxstudiobeta.exe"
+            || is_system_only_name(&name_lower));
+
+    if !is_explicit_cheat && !is_impostor {
         return false;
     }
     let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
@@ -629,12 +644,20 @@ fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>, process_map: &mut Has
                     .any(|kw| name_lower.contains(kw));
 
                 let is_system = is_system_only_name(&name);
+                let is_roblox_impostor = (name_lower == "robloxplayerbeta.exe"
+                    || name_lower == "robloxstudiobeta.exe")
+                    && !is_trusted;
 
-                if is_cheat || is_system {
+                if is_cheat || is_system || is_roblox_impostor {
                     threats.push(SecurityThreat {
                         kind: ThreatKind::KnownCheatProcess,
                         name: name.clone(),
-                        detail: if is_system {
+                        detail: if is_roblox_impostor {
+                            format!(
+                                "Impostor cheat process masquerading as Roblox: {name} (PID {pid}, Path: {})",
+                                proc_path.as_deref().unwrap_or("Unknown")
+                            )
+                        } else if is_system {
                             format!(
                                 "Impostor process disguised with system name: {name} (PID {pid}, Path: {})",
                                 proc_path.as_deref().unwrap_or("Unknown")
@@ -1194,6 +1217,16 @@ mod tests {
             Some(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
         ));
 
+        assert!(is_valid_whitelisted_path(
+            "RobloxPlayerBeta.exe",
+            Some(
+                r"C:\Users\Julian\AppData\Local\RustBlox\data\Versions\version-abc\RobloxPlayerBeta.exe"
+            )
+        ));
+        assert!(!is_valid_whitelisted_path(
+            "RobloxPlayerBeta.exe",
+            Some(r"C:\Users\Julian\Downloads\Matrix\RobloxPlayerBeta.exe")
+        ));
         assert!(!is_valid_whitelisted_path(
             "explorer.exe",
             Some(r"D:\matrix\explorer.exe")
