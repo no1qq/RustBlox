@@ -61,12 +61,19 @@ const CHEAT_PROCESS_KEYWORDS: &[&str] = &[
 
 const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
     "matrix hub",
+    "matrix external",
+    "matrix",
     "matcha external",
     "matchahub",
+    "matcha",
     "solara executor",
+    "solara",
     "celery executor",
+    "celery",
     "krampus",
     "xenos injector",
+    "xenos",
+    "extreme injector",
     "cheat engine",
     "x64dbg",
     "x32dbg",
@@ -490,6 +497,7 @@ type NtQuerySystemInformationFn = unsafe extern "system" fn(
 ) -> i32;
 
 fn scan_roblox_memory_handles(target_pid: u32, threats: &mut Vec<SecurityThreat>) {
+    enable_debug_privilege();
     unsafe {
         let ntdll_name = wide_null("ntdll.dll");
         let h_ntdll = GetModuleHandleW(ntdll_name.as_ptr());
@@ -1142,15 +1150,12 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                 }
             } else {
                 consecutive_dead += 1;
-                if consecutive_dead >= 10 {
+                if consecutive_dead >= 200 {
                     break;
                 }
             }
 
-            if pid != 0
-                && consecutive_dead == 0
-                && last_scan.elapsed() >= std::time::Duration::from_millis(800)
-            {
+            if pid != 0 && last_scan.elapsed() >= std::time::Duration::from_millis(600) {
                 let report = scan_security(Some(pid), Some(&install_dir));
                 for threat in report.threats {
                     if let Some(threat_pid) = threat.pid {

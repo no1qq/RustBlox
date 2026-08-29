@@ -246,7 +246,8 @@ pub mod security;
 pub mod shortcut;
 
 pub use security::{
-    clean_roblox_dir_proxies, hide_tray_icon, run_thewatcher_service, spawn_elevated,
+    clean_roblox_dir_proxies, hide_tray_icon, run_thewatcher_service, scan_security,
+    spawn_elevated, terminate_threat_pid,
 };
 
 pub fn attach_parent_console() {

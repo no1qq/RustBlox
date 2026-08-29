@@ -150,7 +150,7 @@ impl AppState {
             startup_notes,
             exe_path: std::env::current_exe().ok(),
             close_requested: false,
-            security: crate::roblox::security::SecurityWatchdog,
+            security: crate::roblox::security::SecurityWatchdog::default(),
             settings_dirty_at: None,
             flags_dirty_at: None,
             game_dirty_at: None,
@@ -260,6 +260,13 @@ impl AppState {
                 self.roblox = status;
                 if self.roblox.player_running() {
                     self.client_seen = true;
+                    if !self.security.is_running() {
+                        if let Some(player) = self.roblox.players.first() {
+                            let install_dir =
+                                self.detection.active().map(|i| i.version_dir.clone());
+                            self.security.start(player.pid, install_dir);
+                        }
+                    }
                 } else if was_running {
                     log_info!("the Roblox client closed");
                     self.security.stop();
