@@ -316,6 +316,46 @@ pub fn get_process_image_path(pid: u32) -> Option<String> {
     }
 }
 
+const SYSTEM_ONLY_NAMES: &[&str] = &[
+    "explorer.exe",
+    "svchost.exe",
+    "csrss.exe",
+    "smss.exe",
+    "lsass.exe",
+    "services.exe",
+    "wininit.exe",
+    "winlogon.exe",
+    "dwm.exe",
+    "spoolsv.exe",
+    "sihost.exe",
+    "taskhostw.exe",
+    "ctfmon.exe",
+    "taskmgr.exe",
+    "audiodg.exe",
+    "fontdrvhost.exe",
+    "runtimebroker.exe",
+    "searchhost.exe",
+    "searchapp.exe",
+    "smartscreen.exe",
+    "dllhost.exe",
+    "conhost.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+];
+
+pub fn is_system_only_name(name: &str) -> bool {
+    let name_lower = name.to_ascii_lowercase();
+    let file_name = match name_lower.rfind('\\') {
+        Some(idx) => &name_lower[idx + 1..],
+        None => match name_lower.rfind('/') {
+            Some(idx) => &name_lower[idx + 1..],
+            None => &name_lower,
+        },
+    };
+    SYSTEM_ONLY_NAMES.contains(&file_name)
+}
+
 pub fn is_valid_whitelisted_path(name: &str, path: Option<&str>) -> bool {
     let name_lower = name.to_ascii_lowercase();
     let file_name = match name_lower.rfind('\\') {
@@ -331,54 +371,30 @@ pub fn is_valid_whitelisted_path(name: &str, path: Option<&str>) -> bool {
     }
 
     let Some(full_path) = path else {
-        return true;
+        return !is_system_only_name(file_name);
     };
     let path_lower = full_path.to_ascii_lowercase();
+
+    if is_system_only_name(file_name) {
+        return path_lower.starts_with(r"c:\windows\")
+            || path_lower.starts_with(r"c:\program files\windowsapps\");
+    }
+
+    let is_non_c_drive = path_lower.len() >= 3
+        && path_lower.as_bytes()[1] == b':'
+        && path_lower.as_bytes()[2] == b'\\'
+        && path_lower.as_bytes()[0] != b'c';
 
     if (path_lower.contains(r"\appdata\local\temp\")
         || path_lower.contains(r"\temp\")
         || path_lower.contains(r"\downloads\")
-        || path_lower.starts_with("d:\\")
-        || path_lower.starts_with("e:\\")
-        || path_lower.starts_with("f:\\"))
+        || is_non_c_drive)
         && file_name != "rustblox.exe"
         && file_name != "cargo.exe"
         && file_name != "rustc.exe"
         && file_name != "git.exe"
-        && file_name != "powershell.exe"
-        && file_name != "pwsh.exe"
-        && file_name != "cmd.exe"
     {
         return false;
-    }
-
-    const SYSTEM_ONLY_NAMES: &[&str] = &[
-        "explorer.exe",
-        "svchost.exe",
-        "csrss.exe",
-        "smss.exe",
-        "lsass.exe",
-        "services.exe",
-        "wininit.exe",
-        "winlogon.exe",
-        "dwm.exe",
-        "spoolsv.exe",
-        "sihost.exe",
-        "taskhostw.exe",
-        "ctfmon.exe",
-        "taskmgr.exe",
-        "audiodg.exe",
-        "fontdrvhost.exe",
-        "runtimebroker.exe",
-        "searchhost.exe",
-        "searchapp.exe",
-        "smartscreen.exe",
-        "dllhost.exe",
-    ];
-
-    if SYSTEM_ONLY_NAMES.contains(&file_name) {
-        return path_lower.starts_with(r"c:\windows\")
-            || path_lower.starts_with(r"c:\program files\windowsapps\");
     }
 
     if file_name.starts_with("discord") {
@@ -419,11 +435,12 @@ pub fn is_authorized_roblox_handle_holder(name: &str, path: Option<&str>) -> boo
 
     if let Some(p) = path {
         let p_lower = p.to_ascii_lowercase();
-        if p_lower.contains(r"\temp\")
-            || p_lower.contains(r"\downloads\")
-            || p_lower.starts_with("d:\\")
-            || p_lower.starts_with("e:\\")
-        {
+        let is_non_c = p_lower.len() >= 3
+            && p_lower.as_bytes()[1] == b':'
+            && p_lower.as_bytes()[2] == b'\\'
+            && p_lower.as_bytes()[0] != b'c';
+
+        if p_lower.contains(r"\temp\") || p_lower.contains(r"\downloads\") || is_non_c {
             return false;
         }
     }
@@ -431,6 +448,7 @@ pub fn is_authorized_roblox_handle_holder(name: &str, path: Option<&str>) -> boo
     true
 }
 
+#[allow(dead_code)]
 pub fn is_whitelisted_process(name: &str) -> bool {
     let name_lower = name.to_ascii_lowercase();
     let file_name = match name_lower.rfind('\\') {
@@ -552,7 +570,10 @@ fn scan_roblox_memory_handles(target_pid: u32, threats: &mut Vec<SecurityThreat>
                 continue;
             }
 
-            if (entry.granted_access & 0x0010) == 0 {
+            if (entry.granted_access
+                & (0x0010 | 0x0020 | 0x0008 | 0x0040 | 0x0800 | 0x001F0000 | 0x0400))
+                == 0
+            {
                 continue;
             }
 
@@ -622,22 +643,36 @@ fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>, process_map: &mut Has
     while ok != 0 {
         let name = from_wide_nul(&entry.szExeFile);
         let name_lower = name.to_ascii_lowercase();
+        let pid = entry.th32ProcessID;
 
-        if !is_whitelisted_process(&name) {
-            let is_cheat = CHEAT_PROCESS_KEYWORDS
-                .iter()
-                .any(|kw| name_lower.contains(kw));
+        if pid != 0 && pid != 4 {
+            let proc_path = get_process_image_path(pid);
+            let is_trusted = is_valid_whitelisted_path(&name, proc_path.as_deref());
 
-            if is_cheat {
-                threats.push(SecurityThreat {
-                    kind: ThreatKind::KnownCheatProcess,
-                    name: name.clone(),
-                    detail: format!(
-                        "Active cheat or script executor process running: {name} (PID {})",
-                        entry.th32ProcessID
-                    ),
-                    pid: Some(entry.th32ProcessID),
-                });
+            if !is_trusted {
+                let is_cheat = CHEAT_PROCESS_KEYWORDS
+                    .iter()
+                    .any(|kw| name_lower.contains(kw));
+
+                let is_system = is_system_only_name(&name);
+
+                if is_cheat || is_system {
+                    threats.push(SecurityThreat {
+                        kind: ThreatKind::KnownCheatProcess,
+                        name: name.clone(),
+                        detail: if is_system {
+                            format!(
+                                "Impostor process disguised with system name: {name} (PID {pid}, Path: {})",
+                                proc_path.as_deref().unwrap_or("Unknown")
+                            )
+                        } else {
+                            format!(
+                                "Active cheat or script executor process running: {name} (PID {pid})"
+                            )
+                        },
+                        pid: Some(pid),
+                    });
+                }
             }
         }
 
@@ -646,8 +681,7 @@ fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>, process_map: &mut Has
     }
 }
 
-struct WindowScanContext<'a> {
-    process_map: &'a HashMap<u32, String>,
+struct WindowScanContext {
     threats: Vec<SecurityThreat>,
 }
 
@@ -674,29 +708,22 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
     if matches_cheat {
         let mut pid: u32 = 0;
         GetWindowThreadProcessId(hwnd, &mut pid);
-        if pid != 0 && pid != 4 {
+        if pid != 0 && pid != 4 && !is_whitelisted_pid(pid) {
             let ctx = &mut *(lparam as *mut WindowScanContext);
-            let is_whitelisted = match ctx.process_map.get(&pid) {
-                Some(proc_name) => is_whitelisted_process(proc_name),
-                None => is_whitelisted_pid(pid),
-            };
-            if !is_whitelisted {
-                ctx.threats.push(SecurityThreat {
-                    kind: ThreatKind::KnownCheatProcess,
-                    name: title.clone(),
-                    detail: format!("Cheat window '{title}' detected (PID {pid})"),
-                    pid: Some(pid),
-                });
-            }
+            ctx.threats.push(SecurityThreat {
+                kind: ThreatKind::KnownCheatProcess,
+                name: title.clone(),
+                detail: format!("Cheat window '{title}' detected (PID {pid})"),
+                pid: Some(pid),
+            });
         }
     }
 
     1
 }
 
-fn scan_cheat_windows(process_map: &HashMap<u32, String>, threats: &mut Vec<SecurityThreat>) {
+fn scan_cheat_windows(_process_map: &HashMap<u32, String>, threats: &mut Vec<SecurityThreat>) {
     let mut context = WindowScanContext {
-        process_map,
         threats: Vec::new(),
     };
     unsafe {
