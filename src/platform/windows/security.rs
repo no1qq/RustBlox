@@ -20,8 +20,9 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
-    TerminateProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    GetCurrentProcess, GetExitCodeProcess, GetProcessId, OpenProcess, OpenProcessToken,
+    QueryFullProcessImageNameW, TerminateProcess, PROCESS_DUP_HANDLE,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows_sys::Win32::UI::Shell::{
     ShellExecuteExW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
@@ -1145,17 +1146,31 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                 }
                 consecutive_dead = 0;
             } else if pid == 0 {
-                if start_time.elapsed() > std::time::Duration::from_secs(120) {
+                if start_time.elapsed() > std::time::Duration::from_secs(60) {
                     break;
                 }
             } else {
-                consecutive_dead += 1;
-                if consecutive_dead >= 200 {
-                    break;
+                let mut is_alive = false;
+                if !roblox_handle.is_null() {
+                    let mut exit_code = 0;
+                    if GetExitCodeProcess(roblox_handle, &mut exit_code) != 0 && exit_code == 259 {
+                        is_alive = true;
+                    }
+                }
+                if !is_alive {
+                    consecutive_dead += 1;
+                    if consecutive_dead >= 10 {
+                        break;
+                    }
+                } else {
+                    consecutive_dead = 0;
                 }
             }
 
-            if pid != 0 && last_scan.elapsed() >= std::time::Duration::from_millis(600) {
+            if pid != 0
+                && consecutive_dead == 0
+                && last_scan.elapsed() >= std::time::Duration::from_millis(600)
+            {
                 let report = scan_security(Some(pid), Some(&install_dir));
                 for threat in report.threats {
                     if let Some(threat_pid) = threat.pid {
