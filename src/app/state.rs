@@ -295,7 +295,11 @@ impl AppState {
             Update::AppRelease(found) => match *found {
                 Ok(Some(release)) => {
                     log_info!("RustBlox {} is available", release.version);
+                    let rel_clone = release.clone();
                     self.app_update.found(Some(release));
+                    if let Some(exe) = self.exe_path.clone() {
+                        self.tasks.download_app_update(rel_clone, exe);
+                    }
                 }
                 Ok(None) => self.app_update.found(None),
                 Err(message) => {
