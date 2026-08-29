@@ -4,7 +4,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DuplicateHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LUID, RECT,
+    CloseHandle, DuplicateHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LUID,
 };
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
@@ -35,10 +35,9 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateIconFromResourceEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    EnumWindows, GetSystemMetrics, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, LoadIconW, PeekMessageW,
-    RegisterClassW, TranslateMessage, GWL_EXSTYLE, HICON, IDI_SHIELD, LR_DEFAULTCOLOR, MSG,
-    PM_REMOVE, SM_CXSMICON, SW_HIDE, WNDCLASSW, WS_OVERLAPPED,
+    EnumWindows, GetSystemMetrics, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible, LoadIconW, PeekMessageW, RegisterClassW, TranslateMessage, HICON, IDI_SHIELD,
+    LR_DEFAULTCOLOR, MSG, PM_REMOVE, SM_CXSMICON, SW_HIDE, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
@@ -46,98 +45,34 @@ use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
 const THEWATCHER_ICO: &[u8] = include_bytes!("../../../assets/thewatcher.ico");
 
 const CHEAT_PROCESS_KEYWORDS: &[&str] = &[
-    "matrix",
     "matrixhub",
-    "matcha",
     "matchahub",
-    "matchav2",
     "matcha_external",
-    "aimmy",
-    "neuralaim",
-    "newui",
-    "newuiv3",
     "solara",
     "celery",
-    "wave",
-    "swift",
-    "krnl",
-    "fluxus",
-    "electron",
-    "oxygenu",
-    "valyse",
     "krampus",
     "xenos",
-    "xeno",
-    "valex",
-    "zenith",
-    "horizon",
-    "nyx",
-    "aether",
-    "zeroesp",
     "synapsez",
-    "potassium",
-    "macsploit",
     "extremeinjector",
     "cheatengine",
     "x64dbg",
     "x32dbg",
     "ida64",
-    "ida",
     "scylla",
     "processhacker",
     "systeminformer",
     "httpdebugger",
     "reclass",
-    "sydo",
-    "aimbot",
-    "wallhack",
-    "streamproof",
-    "injector",
-    "executor",
-    "exploit",
-    "interception",
 ];
 
 const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
     "matrix hub",
-    "matrix",
     "matcha external",
-    "matcha v2",
-    "matcha",
     "matchahub",
-    "aimmy",
-    "neural aim",
-    "newuiv3",
-    "solara",
-    "wave",
-    "celery",
+    "solara executor",
+    "celery executor",
     "krampus",
-    "xeno",
-    "xenos",
-    "delta",
-    "fluxus",
-    "arceus",
-    "codex",
-    "electron",
-    "krnl",
-    "swift",
-    "valex",
-    "zenith",
-    "horizon",
-    "nyx",
-    "aether",
-    "zeroesp",
-    "synapse z",
-    "potassium",
-    "nemesis",
-    "olympus",
-    "valyse",
-    "nihon",
-    "furk",
-    "oxygen u",
-    "jjsploit",
-    "script-ware",
-    "scriptware",
+    "xenos injector",
     "cheat engine",
     "x64dbg",
     "x32dbg",
@@ -145,11 +80,7 @@ const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
     "process hacker",
     "system informer",
     "http debugger",
-    "reclass",
-    "roblox external",
-    "external overlay",
-    "script executor",
-    "cheat executor",
+    "reclass.net",
 ];
 
 #[allow(dead_code)]
@@ -192,27 +123,17 @@ const PROXY_DLL_NAMES: &[&str] = &[
 ];
 
 const EXECUTOR_PIPE_PREFIXES: &[&str] = &[
-    "matrix",
-    "matrix_pipe",
-    "matcha",
-    "matcha_pipe",
-    "aimmy",
     "synapsez",
-    "potassium",
-    "celery",
-    "solara",
-    "wave",
-    "swift",
-    "krnl",
-    "fluxus",
-    "electron",
-    "oxygen",
-    "roblox_pipe",
-    "rbx_pipe",
-    "injector_pipe",
-    "sw_pipe",
-    "valyse",
-    "wearedevs",
+    "synapse_pipe",
+    "potassium_pipe",
+    "celery_pipe",
+    "solara_pipe",
+    "krnl_pipe",
+    "fluxus_pipe",
+    "valyse_pipe",
+    "wearedevs_pipe",
+    "matcha_pipe",
+    "matrix_pipe",
 ];
 
 const KERNEL_CHEAT_DEVICE_PATHS: &[&str] = &[
@@ -272,12 +193,10 @@ pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> Sec
     scan_cheat_processes(&mut threats, &mut process_map);
     scan_cheat_windows(&process_map, &mut threats);
     scan_executor_pipes(&mut threats);
-    scan_unauthorized_ipc_endpoints(&mut threats);
     scan_kernel_cheat_drivers(&mut threats);
 
     if let Some(pid) = player_pid {
         scan_roblox_memory_handles(pid, &mut threats);
-        scan_layered_esp_overlays(pid, &mut threats);
         scan_roblox_unbacked_memory(pid, &mut threats);
         scan_roblox_module_integrity(pid, &mut threats);
     }
@@ -336,6 +255,15 @@ const WHITELISTED_PROCESS_NAMES: &[&str] = &[
     "discord.exe",
     "discordcanary.exe",
     "discordptb.exe",
+    "dorion.exe",
+    "dorion-bin.exe",
+    "medal.exe",
+    "medalencoder.exe",
+    "medalservice.exe",
+    "node.exe",
+    "electron.exe",
+    "antigravity.exe",
+    "agy.exe",
     "chrome.exe",
     "msedge.exe",
     "firefox.exe",
@@ -344,6 +272,7 @@ const WHITELISTED_PROCESS_NAMES: &[&str] = &[
     "operagx.exe",
     "vivaldi.exe",
     "code.exe",
+    "cursor.exe",
     "devenv.exe",
     "git.exe",
     "cargo.exe",
@@ -359,6 +288,8 @@ const WHITELISTED_PROCESS_NAMES: &[&str] = &[
     "nvidia share.exe",
     "nvcontainer.exe",
     "amdrsserv.exe",
+    "obs64.exe",
+    "obs32.exe",
 ];
 
 const AUTHORIZED_HANDLE_HOLDERS: &[&str] = &[
@@ -366,6 +297,12 @@ const AUTHORIZED_HANDLE_HOLDERS: &[&str] = &[
     "rustblox.exe",
     "medalencoder.exe",
     "medal.exe",
+    "medalservice.exe",
+    "dorion.exe",
+    "dorion-bin.exe",
+    "discord.exe",
+    "discordcanary.exe",
+    "discordptb.exe",
     "obs64.exe",
     "obs32.exe",
     "overwolfhelper64.exe",
@@ -373,6 +310,8 @@ const AUTHORIZED_HANDLE_HOLDERS: &[&str] = &[
     "nvcontainer.exe",
     "radeonsofware.exe",
     "amdow.exe",
+    "steam.exe",
+    "steamwebhelper.exe",
     "csrss.exe",
     "lsass.exe",
     "services.exe",
@@ -459,40 +398,8 @@ pub fn is_valid_whitelisted_path(name: &str, path: Option<&str>) -> bool {
             || path_lower.starts_with(r"c:\program files\windowsapps\");
     }
 
-    let is_non_c_drive = path_lower.len() >= 3
-        && path_lower.as_bytes()[1] == b':'
-        && path_lower.as_bytes()[2] == b'\\'
-        && path_lower.as_bytes()[0] != b'c';
-
-    if (path_lower.contains(r"\appdata\local\temp\")
-        || path_lower.contains(r"\temp\")
-        || path_lower.contains(r"\downloads\")
-        || is_non_c_drive)
-        && file_name != "rustblox.exe"
-        && file_name != "cargo.exe"
-        && file_name != "rustc.exe"
-        && file_name != "git.exe"
-    {
+    if path_lower.contains(r"\temp\") || path_lower.contains("matrix") {
         return false;
-    }
-
-    if file_name.starts_with("discord") {
-        return path_lower.contains(r"\discord")
-            || path_lower.starts_with(r"c:\program files")
-            || path_lower.starts_with(r"c:\program files (x86)");
-    }
-
-    if file_name == "chrome.exe"
-        || file_name == "msedge.exe"
-        || file_name == "brave.exe"
-        || file_name == "firefox.exe"
-        || file_name == "opera.exe"
-        || file_name == "operagx.exe"
-        || file_name == "vivaldi.exe"
-    {
-        return path_lower.starts_with(r"c:\program files")
-            || path_lower.starts_with(r"c:\program files (x86)")
-            || path_lower.contains(r"\appdata\local\");
     }
 
     true
@@ -514,12 +421,7 @@ pub fn is_authorized_roblox_handle_holder(name: &str, path: Option<&str>) -> boo
 
     if let Some(p) = path {
         let p_lower = p.to_ascii_lowercase();
-        let is_non_c = p_lower.len() >= 3
-            && p_lower.as_bytes()[1] == b':'
-            && p_lower.as_bytes()[2] == b'\\'
-            && p_lower.as_bytes()[0] != b'c';
-
-        if p_lower.contains(r"\temp\") || p_lower.contains(r"\downloads\") || is_non_c {
+        if p_lower.contains(r"\temp\") {
             return false;
         }
     }
@@ -698,6 +600,16 @@ pub fn terminate_threat_pid(pid: u32) -> bool {
     if pid == 0 || pid == 4 || is_whitelisted_pid(pid) {
         return false;
     }
+    let Some(name) = get_process_name_by_pid(pid) else {
+        return false;
+    };
+    let name_lower = name.to_ascii_lowercase();
+    let is_explicit_cheat = CHEAT_PROCESS_KEYWORDS
+        .iter()
+        .any(|kw| name_lower.contains(kw));
+    if !is_explicit_cheat {
+        return false;
+    }
     let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
     if handle.is_null() {
         return false;
@@ -866,129 +778,6 @@ fn scan_kernel_cheat_drivers(threats: &mut Vec<SecurityThreat>) {
             });
         }
     }
-}
-
-struct OverlayScanContext {
-    roblox_rect: RECT,
-    roblox_pid: u32,
-    threats: Vec<SecurityThreat>,
-}
-
-unsafe extern "system" fn enum_overlays_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
-    if IsWindowVisible(hwnd) == 0 {
-        return 1;
-    }
-
-    let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    let is_layered = (ex_style & 0x00080000) != 0;
-    let is_transparent = (ex_style & 0x00000020) != 0;
-    let is_topmost = (ex_style & 0x00000008) != 0;
-    let is_noactivate = (ex_style & 0x08000000) != 0;
-
-    if is_layered && (is_transparent || is_topmost || is_noactivate) {
-        let mut pid: u32 = 0;
-        GetWindowThreadProcessId(hwnd, &mut pid);
-        let ctx = &mut *(lparam as *mut OverlayScanContext);
-
-        if pid != 0 && pid != 4 && pid != ctx.roblox_pid && !is_whitelisted_pid(pid) {
-            let mut rect: RECT = std::mem::zeroed();
-            if GetWindowRect(hwnd, &mut rect) != 0 {
-                let width = (rect.right - rect.left).abs();
-                let height = (rect.bottom - rect.top).abs();
-                let roblox_w = (ctx.roblox_rect.right - ctx.roblox_rect.left).abs();
-                let roblox_h = (ctx.roblox_rect.bottom - ctx.roblox_rect.top).abs();
-
-                if width >= 150 && height >= 150 {
-                    let intersects = rect.left < ctx.roblox_rect.right
-                        && rect.right > ctx.roblox_rect.left
-                        && rect.top < ctx.roblox_rect.bottom
-                        && rect.bottom > ctx.roblox_rect.top;
-
-                    let size_match =
-                        (width - roblox_w).abs() <= 20 && (height - roblox_h).abs() <= 20;
-
-                    if intersects || size_match {
-                        let proc_name =
-                            get_process_name_by_pid(pid).unwrap_or_else(|| "Unknown".into());
-                        ctx.threats.push(SecurityThreat {
-                            kind: ThreatKind::KnownCheatProcess,
-                            name: format!("ESP Overlay ({proc_name})"),
-                            detail: format!(
-                                "Transparent click-through ESP overlay window detected: {proc_name} (PID {pid}, Style: {ex_style:#x})"
-                            ),
-                            pid: Some(pid),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    1
-}
-
-struct RobloxWindowContext {
-    target_pid: u32,
-    found_hwnd: Option<HWND>,
-}
-
-unsafe extern "system" fn enum_roblox_window_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
-    if IsWindowVisible(hwnd) == 0 {
-        return 1;
-    }
-    let mut pid: u32 = 0;
-    GetWindowThreadProcessId(hwnd, &mut pid);
-    let ctx = &mut *(lparam as *mut RobloxWindowContext);
-    if pid == ctx.target_pid {
-        let mut rect: RECT = std::mem::zeroed();
-        if GetWindowRect(hwnd, &mut rect) != 0 {
-            let width = (rect.right - rect.left).abs();
-            let height = (rect.bottom - rect.top).abs();
-            if width > 100 && height > 100 {
-                ctx.found_hwnd = Some(hwnd);
-                return 0;
-            }
-        }
-    }
-    1
-}
-
-fn find_roblox_main_window(pid: u32) -> Option<HWND> {
-    let mut ctx = RobloxWindowContext {
-        target_pid: pid,
-        found_hwnd: None,
-    };
-    unsafe {
-        EnumWindows(Some(enum_roblox_window_proc), &mut ctx as *mut _ as LPARAM);
-    }
-    ctx.found_hwnd
-}
-
-fn scan_layered_esp_overlays(roblox_pid: u32, threats: &mut Vec<SecurityThreat>) {
-    let roblox_hwnd = find_roblox_main_window(roblox_pid);
-    let mut roblox_rect: RECT = unsafe { std::mem::zeroed() };
-
-    if let Some(hwnd) = roblox_hwnd {
-        unsafe {
-            if GetWindowRect(hwnd, &mut roblox_rect) == 0 {
-                return;
-            }
-        }
-    } else {
-        return;
-    }
-
-    let mut context = OverlayScanContext {
-        roblox_rect,
-        roblox_pid,
-        threats: Vec::new(),
-    };
-
-    unsafe {
-        EnumWindows(Some(enum_overlays_proc), &mut context as *mut _ as LPARAM);
-    }
-
-    threats.extend(context.threats);
 }
 
 fn scan_roblox_unbacked_memory(roblox_pid: u32, threats: &mut Vec<SecurityThreat>) {
@@ -1246,97 +1035,6 @@ fn scan_roblox_module_integrity(roblox_pid: u32, threats: &mut Vec<SecurityThrea
         }
 
         ok = unsafe { Module32NextW(snapshot.0, &mut entry) };
-    }
-}
-
-#[repr(C)]
-struct MIB_TCPROW_OWNER_PID {
-    dw_state: u32,
-    dw_local_addr: u32,
-    dw_local_port: u32,
-    dw_remote_addr: u32,
-    dw_remote_port: u32,
-    dw_owning_pid: u32,
-}
-
-type GetExtendedTcpTableFn = unsafe extern "system" fn(
-    p_tcp_table: *mut std::ffi::c_void,
-    pdw_size: *mut u32,
-    b_order: i32,
-    ul_af: u32,
-    table_class: i32,
-    reserved: u32,
-) -> u32;
-
-fn scan_unauthorized_ipc_endpoints(threats: &mut Vec<SecurityThreat>) {
-    let iphlpapi_name = wide_null("iphlpapi.dll");
-    let h_iphlpapi = unsafe { LoadLibraryW(iphlpapi_name.as_ptr()) };
-    if h_iphlpapi.is_null() {
-        return;
-    }
-    let h_guard = OwnedHandle(h_iphlpapi);
-
-    let proc = unsafe { GetProcAddress(h_guard.0, c"GetExtendedTcpTable".as_ptr() as _) };
-    let Some(proc_addr) = proc else {
-        return;
-    };
-    let get_extended_tcp_table: GetExtendedTcpTableFn = unsafe { std::mem::transmute(proc_addr) };
-
-    let mut size: u32 = 0;
-    let _ = unsafe { get_extended_tcp_table(std::ptr::null_mut(), &mut size, 0, 2, 5, 0) };
-
-    if size == 0 {
-        return;
-    }
-
-    let mut buffer: Vec<u8> = vec![0; size as usize];
-    let res = unsafe {
-        get_extended_tcp_table(
-            buffer.as_mut_ptr() as *mut std::ffi::c_void,
-            &mut size,
-            0,
-            2,
-            5,
-            0,
-        )
-    };
-
-    if res != 0 || buffer.len() < 4 {
-        return;
-    }
-
-    let num_entries = unsafe { *(buffer.as_ptr() as *const u32) } as usize;
-    let row_size = std::mem::size_of::<MIB_TCPROW_OWNER_PID>();
-    let table_ptr = unsafe { buffer.as_ptr().add(4) as *const MIB_TCPROW_OWNER_PID };
-
-    for i in 0..num_entries {
-        if 4 + (i + 1) * row_size > buffer.len() {
-            break;
-        }
-        let row = unsafe { &*table_ptr.add(i) };
-        let port = u16::from_be((row.dw_local_port & 0xFFFF) as u16);
-        let pid = row.dw_owning_pid;
-
-        if row.dw_state == 2
-            && (row.dw_local_addr == 0x0100007F || row.dw_local_addr == 0)
-            && pid != 0
-            && pid != 4
-            && !is_whitelisted_pid(pid)
-        {
-            let proc_name = get_process_name_by_pid(pid).unwrap_or_else(|| "Unknown".into());
-            let proc_path = get_process_image_path(pid);
-
-            if !is_valid_whitelisted_path(&proc_name, proc_path.as_deref()) {
-                threats.push(SecurityThreat {
-                    kind: ThreatKind::UnauthorizedIpcServer,
-                    name: format!("Local IPC Server ({proc_name})"),
-                    detail: format!(
-                        "Unauthorized script executor IPC/WebSocket endpoint listening on 127.0.0.1:{port} (PID {pid}, {proc_name})"
-                    ),
-                    pid: Some(pid),
-                });
-            }
-        }
     }
 }
 
@@ -1849,13 +1547,10 @@ mod tests {
 
     #[test]
     fn test_matcha_and_driver_detection() {
-        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"matcha"));
         assert!(CHEAT_PROCESS_KEYWORDS.contains(&"matchahub"));
-        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"matchav2"));
-        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"aimmy"));
+        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"matcha_external"));
         assert!(CHEAT_WINDOW_KEYWORDS.contains(&"matcha external"));
-        assert!(CHEAT_WINDOW_KEYWORDS.contains(&"matcha v2"));
-        assert!(EXECUTOR_PIPE_PREFIXES.contains(&"matcha"));
+        assert!(EXECUTOR_PIPE_PREFIXES.contains(&"matcha_pipe"));
         assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\Matcha"));
         assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\MatchaDriver"));
         assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\GIO"));
