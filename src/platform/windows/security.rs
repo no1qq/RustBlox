@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
@@ -7,11 +8,13 @@ use windows_sys::Win32::Storage::FileSystem::{
     FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, Process32FirstW, Process32NextW,
-    MODULEENTRY32W, PROCESSENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
+    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+use windows_sys::Win32::System::Threading::{
+    GetExitCodeProcess, OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_TERMINATE,
+};
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
 };
@@ -103,6 +106,7 @@ const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
     "cheat executor",
 ];
 
+#[allow(dead_code)]
 const KNOWN_EXECUTOR_DLLS: &[&str] = &[
     "solara.dll",
     "solarainject.dll",
@@ -180,16 +184,13 @@ fn wide_null(value: &str) -> Vec<u16> {
         .collect()
 }
 
-pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> SecurityReport {
+pub fn scan_security(_player_pid: Option<u32>, install_dir: Option<&Path>) -> SecurityReport {
     let mut threats = Vec::new();
+    let mut process_map = HashMap::new();
 
-    scan_cheat_processes(&mut threats);
-    scan_cheat_windows(&mut threats);
+    scan_cheat_processes(&mut threats, &mut process_map);
+    scan_cheat_windows(&process_map, &mut threats);
     scan_executor_pipes(&mut threats);
-
-    if let Some(pid) = player_pid {
-        scan_injected_modules(pid, &mut threats);
-    }
 
     if let Some(dir) = install_dir {
         scan_roblox_dir_integrity(dir, &mut threats);
@@ -331,7 +332,7 @@ pub fn terminate_threat_pid(pid: u32) -> bool {
     unsafe { TerminateProcess(handle.0, 1) != 0 }
 }
 
-fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>) {
+fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>, process_map: &mut HashMap<u32, String>) {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return;
@@ -366,11 +367,13 @@ fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>) {
             }
         }
 
+        process_map.insert(entry.th32ProcessID, name);
         ok = unsafe { Process32NextW(snapshot.0, &mut entry) };
     }
 }
 
-struct WindowScanContext {
+struct WindowScanContext<'a> {
+    process_map: &'a HashMap<u32, String>,
     threats: Vec<SecurityThreat>,
 }
 
@@ -397,74 +400,35 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
     if matches_cheat {
         let mut pid: u32 = 0;
         GetWindowThreadProcessId(hwnd, &mut pid);
-        if pid != 0 && !is_whitelisted_pid(pid) {
+        if pid != 0 && pid != 4 {
             let ctx = &mut *(lparam as *mut WindowScanContext);
-            ctx.threats.push(SecurityThreat {
-                kind: ThreatKind::KnownCheatProcess,
-                name: title.clone(),
-                detail: format!("Cheat window '{title}' detected (PID {pid})"),
-                pid: Some(pid),
-            });
+            let is_whitelisted = match ctx.process_map.get(&pid) {
+                Some(proc_name) => is_whitelisted_process(proc_name),
+                None => is_whitelisted_pid(pid),
+            };
+            if !is_whitelisted {
+                ctx.threats.push(SecurityThreat {
+                    kind: ThreatKind::KnownCheatProcess,
+                    name: title.clone(),
+                    detail: format!("Cheat window '{title}' detected (PID {pid})"),
+                    pid: Some(pid),
+                });
+            }
         }
     }
 
     1
 }
 
-fn scan_cheat_windows(threats: &mut Vec<SecurityThreat>) {
+fn scan_cheat_windows(process_map: &HashMap<u32, String>, threats: &mut Vec<SecurityThreat>) {
     let mut context = WindowScanContext {
+        process_map,
         threats: Vec::new(),
     };
     unsafe {
         EnumWindows(Some(enum_windows_proc), &mut context as *mut _ as LPARAM);
     }
     threats.extend(context.threats);
-}
-
-fn scan_injected_modules(pid: u32, threats: &mut Vec<SecurityThreat>) {
-    let snapshot =
-        unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return;
-    }
-    let snapshot = OwnedHandle(snapshot);
-
-    let mut entry = MODULEENTRY32W {
-        dwSize: std::mem::size_of::<MODULEENTRY32W>() as u32,
-        ..unsafe { std::mem::zeroed() }
-    };
-
-    let mut ok = unsafe { Module32FirstW(snapshot.0, &mut entry) };
-    while ok != 0 {
-        let module_name = from_wide_nul(&entry.szModule);
-        let module_path = from_wide_nul(&entry.szExePath);
-        let module_name_lower = module_name.to_ascii_lowercase();
-        let module_path_lower = module_path.to_ascii_lowercase();
-
-        let is_temp = module_path_lower.contains(r"\appdata\local\temp\")
-            || module_path_lower.contains(r"\temp\");
-        let is_removable = module_path_lower.starts_with("d:\\")
-            || module_path_lower.starts_with("e:\\")
-            || module_path_lower.starts_with("f:\\")
-            || module_path_lower.starts_with("g:\\");
-        let is_cheat_kw = CHEAT_PROCESS_KEYWORDS
-            .iter()
-            .any(|kw| module_name_lower.contains(kw) || module_path_lower.contains(kw));
-        let is_known = KNOWN_EXECUTOR_DLLS
-            .iter()
-            .any(|dll| module_name_lower == *dll);
-
-        if is_temp || is_removable || is_cheat_kw || is_known {
-            threats.push(SecurityThreat {
-                kind: ThreatKind::InjectedModule,
-                name: module_name,
-                detail: format!("Unauthorized injected module in Roblox process: {module_path}"),
-                pid: Some(pid),
-            });
-        }
-
-        ok = unsafe { Module32NextW(snapshot.0, &mut entry) };
-    }
 }
 
 fn scan_executor_pipes(threats: &mut Vec<SecurityThreat>) {
@@ -663,24 +627,44 @@ pub fn run_thewatcher_service(pid: u32, install_dir: PathBuf) {
 
         Shell_NotifyIconW(NIM_ADD, &data);
 
+        let roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         let mut msg: MSG = std::mem::zeroed();
+        let mut last_scan = std::time::Instant::now();
 
-        while crate::roblox::process::is_pid_alive(pid) {
+        loop {
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE) != 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
 
-            let report = scan_security(Some(pid), Some(&install_dir));
-            for threat in report.threats {
-                if let Some(threat_pid) = threat.pid {
-                    if threat_pid != pid {
-                        terminate_threat_pid(threat_pid);
-                    }
+            if !roblox_handle.is_null() {
+                let mut exit_code: u32 = 0;
+                let active =
+                    GetExitCodeProcess(roblox_handle, &mut exit_code) != 0 && exit_code == 259;
+                if !active {
+                    break;
                 }
+            } else if !crate::roblox::process::is_pid_alive(pid) {
+                break;
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            if last_scan.elapsed() >= std::time::Duration::from_secs(3) {
+                let report = scan_security(Some(pid), Some(&install_dir));
+                for threat in report.threats {
+                    if let Some(threat_pid) = threat.pid {
+                        if threat_pid != pid {
+                            terminate_threat_pid(threat_pid);
+                        }
+                    }
+                }
+                last_scan = std::time::Instant::now();
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
+        if !roblox_handle.is_null() {
+            CloseHandle(roblox_handle);
         }
 
         Shell_NotifyIconW(NIM_DELETE, &data);
