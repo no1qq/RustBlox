@@ -925,22 +925,6 @@ pub fn spawn_elevated(program: &Path, args: &[String]) -> crate::error::Result<(
 pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
     enable_debug_privilege();
 
-    if pid == 0 {
-        let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(60) {
-            let status = crate::roblox::process::status();
-            if let Some(player) = status.players.first() {
-                pid = player.pid;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(250));
-        }
-    }
-
-    if pid == 0 {
-        return;
-    }
-
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
         let class_name = wide_null("TheWatcherTrayClass");
@@ -982,7 +966,7 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
         tip[..utf16.len()].copy_from_slice(&utf16);
 
         let mut data: NOTIFYICONDATAW = std::mem::zeroed();
-        data.cbSize = 952;
+        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
         data.hWnd = hwnd;
         data.uID = 0x524258;
         data.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
@@ -992,9 +976,14 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
 
         Shell_NotifyIconW(NIM_ADD, &data);
 
-        let roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         let mut msg: MSG = std::mem::zeroed();
         let mut last_scan = std::time::Instant::now();
+        let start_time = std::time::Instant::now();
+        let mut roblox_handle: HANDLE = if pid != 0 {
+            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
+        } else {
+            std::ptr::null_mut()
+        };
 
         loop {
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE) != 0 {
@@ -1002,27 +991,41 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                 DispatchMessageW(&msg);
             }
 
-            if !roblox_handle.is_null() {
-                let mut exit_code: u32 = 0;
-                let active =
-                    GetExitCodeProcess(roblox_handle, &mut exit_code) != 0 && exit_code == 259;
-                if !active {
+            if pid == 0 {
+                let status = crate::roblox::process::status();
+                if let Some(player) = status.players.first() {
+                    pid = player.pid;
+                    roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                } else if start_time.elapsed() > std::time::Duration::from_secs(90) {
                     break;
                 }
-            } else if !crate::roblox::process::is_pid_alive(pid) {
-                break;
-            }
+            } else {
+                if roblox_handle.is_null() {
+                    roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                }
 
-            if last_scan.elapsed() >= std::time::Duration::from_secs(3) {
-                let report = scan_security(Some(pid), Some(&install_dir));
-                for threat in report.threats {
-                    if let Some(threat_pid) = threat.pid {
-                        if threat_pid != pid {
-                            terminate_threat_pid(threat_pid);
+                if !roblox_handle.is_null() {
+                    let mut exit_code: u32 = 0;
+                    let active = GetExitCodeProcess(roblox_handle, &mut exit_code) != 0
+                        && exit_code == 259;
+                    if !active {
+                        break;
+                    }
+                } else if !crate::roblox::process::is_pid_alive(pid) {
+                    break;
+                }
+
+                if last_scan.elapsed() >= std::time::Duration::from_secs(3) {
+                    let report = scan_security(Some(pid), Some(&install_dir));
+                    for threat in report.threats {
+                        if let Some(threat_pid) = threat.pid {
+                            if threat_pid != pid {
+                                terminate_threat_pid(threat_pid);
+                            }
                         }
                     }
+                    last_scan = std::time::Instant::now();
                 }
-                last_scan = std::time::Instant::now();
             }
 
             std::thread::sleep(std::time::Duration::from_millis(200));
