@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-pub const CURRENT_VERSION: u32 = 6;
+pub const CURRENT_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Migration {
@@ -49,6 +49,7 @@ fn steps_for(version: u32) -> Option<(&'static str, Step)> {
             "added the Discord section, left switched off",
             step_v5_to_v6,
         )),
+        6 => Some(("added the security section", step_v6_to_v7)),
         _ => None,
     }
 }
@@ -117,6 +118,20 @@ fn step_v5_to_v6(root: &mut Map<String, Value>) {
         discord
             .entry("application_id")
             .or_insert(Value::from(crate::discord::DEFAULT_APPLICATION_ID));
+    }
+}
+
+fn step_v6_to_v7(root: &mut Map<String, Value>) {
+    let security = root
+        .entry("security")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(security) = security.as_object_mut() {
+        security
+            .entry("anticheat_enabled")
+            .or_insert(Value::Bool(true));
+        security
+            .entry("auto_terminate_threats")
+            .or_insert(Value::Bool(true));
     }
 }
 
@@ -280,6 +295,16 @@ mod tests {
             json!(crate::discord::DEFAULT_APPLICATION_ID)
         );
         assert!(outcome.note().unwrap().contains("Discord"));
+    }
+
+    #[test]
+    fn the_security_section_arrives_with_anticheat_enabled() {
+        let mut value = json!({"version": 6});
+        let outcome = migrate(&mut value);
+
+        assert_eq!(value["security"]["anticheat_enabled"], json!(true));
+        assert_eq!(value["security"]["auto_terminate_threats"], json!(true));
+        assert!(outcome.note().unwrap().contains("security"));
     }
 
     #[test]

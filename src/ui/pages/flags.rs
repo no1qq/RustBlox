@@ -13,9 +13,7 @@ enum Action {
     Remove(String),
     Toggle(String),
     Edit { key: String, value: String },
-    TogglePreset(&'static str),
     ToggleApply,
-    TogglePresetFlags,
     WriteNow,
     AskReset,
     Reset,
@@ -63,7 +61,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         ui,
         feedback::Tone::Warning,
         "Roblox only applies the flags it has allowed",
-        "The client reads this whole file and then throws out every override that is not on its own list. Nothing any launcher writes can change that, so treat a flag that does nothing as Roblox saying no. Unknown names are ignored, bad values can stop the client starting, and RustBlox keeps a timestamped copy of any file it replaces.");
+        "The client reads this file and ignores overrides not present on Roblox's official internal allowlist. FastFlags should be verified for your client version. Presets have been removed so you have full direct control over your profile.");
     ui.add_space(theme.metrics.gap_lg);
 
     let refused = state.denied_active_flags();
@@ -81,9 +79,6 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     }
 
     applying(ui, &theme, state, &mut action);
-    ui.add_space(theme.metrics.gap_lg);
-
-    presets(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
 
     editor(ui, &theme, state, ui_state, &mut action);
@@ -144,66 +139,6 @@ fn applying(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Opt
     );
 }
 
-fn presets(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
-    widgets::section(
-        ui,
-        "Presets",
-        Some("Each one writes the handful of flags it needs and clears them again when you turn it off."),
-        |ui| {
-            for (index, group) in flags::GROUPS.iter().enumerate() {
-                if index > 0 {
-                    ui.add_space(theme.metrics.gap_md);
-                }
-
-                ui.label(
-                    egui::RichText::new(*group)
-                        .font(theme::medium(theme::size::SMALL))
-                        .color(theme.palette.text_muted),
-                );
-                ui.add_space(theme.metrics.gap_sm);
-
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing =
-                        egui::vec2(theme.metrics.gap_sm, theme.metrics.gap_sm);
-
-                    for preset in flags::presets_in(group) {
-                        let on = state.flags.preset_applied(preset);
-                        let refused = preset.pairs.iter().any(|(key, _)| {
-                            state
-                                .denied_flags
-                                .iter()
-                                .any(|denied| denied.eq_ignore_ascii_case(key))
-                        });
-                        let response = widgets::Button::new(preset.name)
-                            .icon(if on { Icon::Check } else { Icon::Plus })
-                            .tone(if refused && on {
-                                widgets::Tone::Danger
-                            } else if on {
-                                widgets::Tone::Primary
-                            } else {
-                                widgets::Tone::Neutral
-                            })
-                            .size(widgets::Size::Small)
-                            .show(ui)
-                            .on_hover_text(if refused {
-                                format!(
-                                    "{} Roblox refused this one on the last launch.",
-                                    preset.detail
-                                )
-                            } else {
-                                preset.detail.to_owned()
-                            });
-
-                        if response.clicked() {
-                            *action = Some(Action::TogglePreset(preset.name));
-                        }
-                    }
-                });
-            }
-        },
-    );
-}
-
 const DIALOG_WIDTH: f32 = 520.0;
 
 fn reset_dialog(
@@ -238,7 +173,7 @@ fn reset_dialog(
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(
-                    "Presets and custom flags both go, and the client goes back to its own defaults. A copy of the file it is using now is kept in the backup folder.",
+                    "All custom flags in your profile are removed, and the client goes back to its own defaults. A copy of the file it is using now is kept in the backup folder.",
                 )
                 .font(theme::text_style(theme::size::SMALL))
                 .color(palette.text_muted),
@@ -403,20 +338,15 @@ fn editor(
     let refused = state.denied_active_flags();
     let filter = ui_state.flag_filter.to_lowercase();
     let entries = state.flags.entries.clone();
-    let from_presets = entries
-        .iter()
-        .filter(|entry| flags::from_a_preset(&entry.key))
-        .count();
     let visible: Vec<_> = entries
         .iter()
-        .filter(|entry| ui_state.show_preset_flags || !flags::from_a_preset(&entry.key))
         .filter(|entry| filter.is_empty() || entry.key.to_lowercase().contains(&filter))
         .collect();
 
     widgets::section(
         ui,
         "Profile",
-        Some("Every flag RustBlox will write, whichever way it got here."),
+        Some("Every flag RustBlox will write to ClientAppSettings.json."),
         |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
@@ -456,32 +386,17 @@ fn editor(
                 return;
             }
 
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
-                if entries.len() > 6 {
+            if entries.len() > 6 {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
                     widgets::text_field(ui, &mut ui_state.flag_filter, "Filter by name", 220.0);
-                }
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if from_presets > 0 {
-                        let mut shown = ui_state.show_preset_flags;
-                        if widgets::toggle(ui, &mut shown).changed() {
-                            *action = Some(Action::TogglePresetFlags);
-                        }
-                        ui.label(
-                            egui::RichText::new(format!("Show the {from_presets} from presets"))
-                                .font(theme::text_style(theme::size::SMALL))
-                                .color(theme.palette.text_muted),
-                        );
-                    }
                 });
-            });
-
-            ui.add_space(theme.metrics.gap_sm);
+                ui.add_space(theme.metrics.gap_sm);
+            }
 
             if visible.is_empty() {
                 ui.label(
-                    egui::RichText::new("Nothing to show with those two filters on.")
+                    egui::RichText::new("Nothing to show with that filter.")
                         .font(theme::text_style(theme::size::SMALL))
                         .color(theme.palette.text_muted),
                 );
@@ -517,8 +432,6 @@ fn editor(
                                     widgets::badge(ui, "refused by Roblox", feedback::Tone::Danger);
                                 } else if flags::looks_unusual(&entry.key) {
                                     widgets::badge(ui, "unknown prefix", feedback::Tone::Warning);
-                                } else if flags::from_a_preset(&entry.key) {
-                                    widgets::badge(ui, "preset", feedback::Tone::Neutral);
                                 }
                             });
                         });
@@ -590,23 +503,12 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
             state.flags.remove(&key);
             state.commit_flags();
         }
-        Action::TogglePreset(name) => {
-            if let Some(preset) = flags::preset_named(name) {
-                if state.flags.preset_applied(preset) {
-                    state.flags.remove_preset(preset);
-                } else {
-                    state.flags.apply_preset(preset);
-                }
-                state.commit_flags();
-            }
-        }
         Action::ToggleApply => {
             state.settings.advanced.apply_flag_profile =
                 !state.settings.advanced.apply_flag_profile;
             state.mark_settings_dirty();
             state.flush_settings();
         }
-        Action::TogglePresetFlags => ui_state.show_preset_flags = !ui_state.show_preset_flags,
         Action::WriteNow => state.write_flags_now(),
         Action::Copied => state.toasts.success("Copied to the clipboard"),
         Action::Toggle(key) => {

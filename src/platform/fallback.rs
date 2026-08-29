@@ -83,3 +83,18 @@ pub fn free_space(_path: &Path) -> Option<u64> {
 pub fn system_dark_mode() -> Option<bool> {
     None
 }
+
+pub fn scan_security(
+    _player_pid: Option<u32>,
+    _install_dir: Option<&std::path::Path>,
+) -> super::SecurityReport {
+    super::SecurityReport::default()
+}
+
+pub fn terminate_threat_pid(_pid: u32) -> bool {
+    false
+}
+
+pub fn clean_roblox_dir_proxies(_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    Vec::new()
+}

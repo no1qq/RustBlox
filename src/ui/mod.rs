@@ -186,7 +186,6 @@ pub struct UiState {
     pub flag_value: String,
     pub flag_error: Option<String>,
     pub flag_filter: String,
-    pub show_preset_flags: bool,
     pub confirm_flag_reset: bool,
     pub raw_editor: Option<String>,
     pub confirm: Option<LaunchTarget>,

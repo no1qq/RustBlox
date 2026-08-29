@@ -382,6 +382,10 @@ fn execute(
             Err(err) => notes.push(format!("mods were left alone: {err}")),
         }
     }
+    let cleaned = platform::clean_roblox_dir_proxies(&install.version_dir);
+    if !cleaned.is_empty() {
+        notes.push(format!("removed {} rogue proxy files", cleaned.len()));
+    }
     done(emit, StepId::Configure, notes.join(", "));
     check_cancel(cancel, StepId::Start)?;
 

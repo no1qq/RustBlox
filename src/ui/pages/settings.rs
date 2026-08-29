@@ -226,6 +226,39 @@ fn launch(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
                 },
             );
         });
+
+        ui.add_space(theme.metrics.gap_lg);
+
+        widgets::section(
+            ui,
+            "Security & Anti-Cheat",
+            Some("Monitors Roblox in the background when launched from RustBlox."),
+            |ui| {
+                widgets::setting_row(
+                    ui,
+                    "Anti-cheat protection",
+                    "Flags external tools, DLL injection, and script executors while Roblox runs.",
+                    |ui| {
+                        changed |=
+                            widgets::toggle(ui, &mut state.settings.security.anticheat_enabled)
+                                .changed();
+                    },
+                );
+                ui.add_space(theme.metrics.gap_md);
+                widgets::setting_row(
+                    ui,
+                    "Auto-terminate cheat processes",
+                    "Automatically closes detected cheat tools and injectors when flagged.",
+                    |ui| {
+                        changed |= widgets::toggle(
+                            ui,
+                            &mut state.settings.security.auto_terminate_threats,
+                        )
+                        .changed();
+                    },
+                );
+            },
+        );
     }
 
     if advanced {

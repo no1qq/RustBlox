@@ -20,13 +20,17 @@ pub enum FlagValue {
 
 impl FlagValue {
     pub fn as_json(&self) -> Value {
-        Value::String(self.display())
+        match self {
+            FlagValue::Bool(value) => Value::Bool(*value),
+            FlagValue::Number(value) => Value::Number((*value).into()),
+            FlagValue::Text(value) => Value::String(value.clone()),
+        }
     }
 
     pub fn display(&self) -> String {
         match self {
-            FlagValue::Bool(true) => "True".into(),
-            FlagValue::Bool(false) => "False".into(),
+            FlagValue::Bool(true) => "true".into(),
+            FlagValue::Bool(false) => "false".into(),
             FlagValue::Number(value) => value.to_string(),
             FlagValue::Text(value) => value.clone(),
         }
@@ -151,141 +155,6 @@ impl FlagProfile {
             source,
         })?;
         Self::from_json(&value)
-    }
-}
-
-pub struct Preset {
-    pub group: &'static str,
-    pub name: &'static str,
-    pub detail: &'static str,
-    pub pairs: &'static [(&'static str, &'static str)],
-}
-
-pub const GROUPS: [&str; 3] = [RENDERER, LIGHTING, PICTURE];
-
-const RENDERER: &str = "Renderer";
-const LIGHTING: &str = "Lighting";
-const PICTURE: &str = "Picture";
-
-pub const PRESETS: [Preset; 9] = [
-    Preset {
-        group: RENDERER,
-        name: "Prefer Vulkan",
-        detail: "Asks the client to render through Vulkan and turns the other two off.",
-        pairs: &[
-            ("FFlagDebugGraphicsPreferVulkan", "true"),
-            ("FFlagDebugGraphicsPreferD3D11", "false"),
-            ("FFlagDebugGraphicsPreferOpenGL", "false"),
-        ],
-    },
-    Preset {
-        group: RENDERER,
-        name: "Prefer Direct3D 11",
-        detail: "Asks the client to render through Direct3D 11 and turns the other two off.",
-        pairs: &[
-            ("FFlagDebugGraphicsPreferD3D11", "true"),
-            ("FFlagDebugGraphicsPreferVulkan", "false"),
-            ("FFlagDebugGraphicsPreferOpenGL", "false"),
-        ],
-    },
-    Preset {
-        group: RENDERER,
-        name: "Prefer OpenGL",
-        detail: "Asks the client to render through OpenGL and turns the other two off.",
-        pairs: &[
-            ("FFlagDebugGraphicsPreferOpenGL", "true"),
-            ("FFlagDebugGraphicsPreferVulkan", "false"),
-            ("FFlagDebugGraphicsPreferD3D11", "false"),
-        ],
-    },
-    Preset {
-        group: LIGHTING,
-        name: "Voxel lighting",
-        detail: "Forces the oldest and cheapest lighting technology on every place.",
-        pairs: &[
-            ("FFlagDebugForceFutureIsBrightPhase1", "true"),
-            ("FFlagDebugForceFutureIsBrightPhase2", "false"),
-            ("FFlagDebugForceFutureIsBrightPhase3", "false"),
-        ],
-    },
-    Preset {
-        group: LIGHTING,
-        name: "Shadow map lighting",
-        detail: "Forces the middle lighting technology on every place.",
-        pairs: &[
-            ("FFlagDebugForceFutureIsBrightPhase2", "true"),
-            ("FFlagDebugForceFutureIsBrightPhase1", "false"),
-            ("FFlagDebugForceFutureIsBrightPhase3", "false"),
-        ],
-    },
-    Preset {
-        group: LIGHTING,
-        name: "Future lighting",
-        detail: "Forces the newest lighting technology instead of whatever the place picked.",
-        pairs: &[
-            ("FFlagDebugForceFutureIsBrightPhase3", "true"),
-            ("FFlagDebugForceFutureIsBrightPhase1", "false"),
-            ("FFlagDebugForceFutureIsBrightPhase2", "false"),
-        ],
-    },
-    Preset {
-        group: PICTURE,
-        name: "Four times anti-aliasing",
-        detail: "Asks for four MSAA samples rather than whatever the quality level picked.",
-        pairs: &[("FIntDebugForceMSAASamples", "4")],
-    },
-    Preset {
-        group: PICTURE,
-        name: "No anti-aliasing",
-        detail: "Drops MSAA to a single sample, which is the cheapest the client will go.",
-        pairs: &[("FIntDebugForceMSAASamples", "1")],
-    },
-    Preset {
-        group: PICTURE,
-        name: "Ignore display scaling",
-        detail: "Stops the client rendering at a lower resolution when Windows is scaled above 100 percent.",
-        pairs: &[("DFFlagDisableDPIScale", "true")],
-    },
-];
-
-pub fn preset_named(name: &str) -> Option<&'static Preset> {
-    PRESETS.iter().find(|preset| preset.name == name)
-}
-
-pub fn presets_in(group: &str) -> impl Iterator<Item = &'static Preset> + '_ {
-    PRESETS.iter().filter(move |preset| preset.group == group)
-}
-
-pub fn from_a_preset(key: &str) -> bool {
-    PRESETS.iter().any(|preset| {
-        preset
-            .pairs
-            .iter()
-            .any(|(name, _)| name.eq_ignore_ascii_case(key))
-    })
-}
-
-impl FlagProfile {
-    pub fn preset_applied(&self, preset: &Preset) -> bool {
-        preset.pairs.iter().all(|(key, value)| {
-            let wanted = FlagValue::from_input(value);
-            self.entries.iter().any(|entry| {
-                entry.enabled && entry.key.eq_ignore_ascii_case(key) && entry.value == wanted
-            })
-        })
-    }
-
-    pub fn apply_preset(&mut self, preset: &Preset) {
-        for (key, value) in preset.pairs {
-            self.set((*key).to_owned(), FlagValue::from_input(value));
-        }
-        self.sort();
-    }
-
-    pub fn remove_preset(&mut self, preset: &Preset) {
-        for (key, _) in preset.pairs {
-            self.remove(key);
-        }
     }
 }
 
@@ -455,22 +324,24 @@ mod tests {
         assert_eq!(profile.active_count(), 3);
 
         let json = profile.to_json();
-        assert_eq!(json["FFlagA"], serde_json::json!("True"));
-        assert_eq!(json["DFIntB"], serde_json::json!("7"));
+        assert_eq!(json["FFlagA"], serde_json::json!(true));
+        assert_eq!(json["DFIntB"], serde_json::json!(7));
         assert_eq!(json["FStringC"], serde_json::json!("x"));
     }
 
     #[test]
-    fn the_client_file_only_ever_holds_strings() {
+    fn the_client_file_holds_typed_json_values() {
         let mut profile = FlagProfile::default();
         profile.set("FFlagOne".into(), FlagValue::Bool(true));
         profile.set("FFlagTwo".into(), FlagValue::Bool(false));
         profile.set("DFIntThree".into(), FlagValue::Number(240));
+        profile.set("FStringFour".into(), FlagValue::Text("test".into()));
 
-        for (_, value) in profile.to_json().as_object().unwrap() {
-            assert!(value.is_string(), "{value} is not a string");
-        }
-        assert_eq!(profile.to_json()["FFlagTwo"], serde_json::json!("False"));
+        let json = profile.to_json();
+        assert_eq!(json["FFlagOne"], serde_json::json!(true));
+        assert_eq!(json["FFlagTwo"], serde_json::json!(false));
+        assert_eq!(json["DFIntThree"], serde_json::json!(240));
+        assert_eq!(json["FStringFour"], serde_json::json!("test"));
     }
 
     #[test]
@@ -534,106 +405,6 @@ mod tests {
         let loaded = load_profile(dir.path()).unwrap();
 
         assert_eq!(loaded.to_json(), profile.to_json());
-    }
-
-    #[test]
-    fn a_preset_reads_as_off_until_every_pair_matches() {
-        let preset = preset_named("Prefer Vulkan").unwrap();
-        let mut profile = FlagProfile::default();
-        assert!(!profile.preset_applied(preset));
-
-        profile.set(
-            "FFlagDebugGraphicsPreferVulkan".into(),
-            FlagValue::Bool(true),
-        );
-        assert!(!profile.preset_applied(preset));
-
-        profile.apply_preset(preset);
-        assert!(profile.preset_applied(preset));
-    }
-
-    #[test]
-    fn the_rendering_presets_turn_each_other_off() {
-        let mut profile = FlagProfile::default();
-        profile.apply_preset(preset_named("Prefer Vulkan").unwrap());
-        profile.apply_preset(preset_named("Prefer OpenGL").unwrap());
-
-        assert!(profile.preset_applied(preset_named("Prefer OpenGL").unwrap()));
-        assert!(!profile.preset_applied(preset_named("Prefer Vulkan").unwrap()));
-    }
-
-    #[test]
-    fn the_lighting_presets_turn_each_other_off() {
-        let mut profile = FlagProfile::default();
-        profile.apply_preset(preset_named("Voxel lighting").unwrap());
-        profile.apply_preset(preset_named("Future lighting").unwrap());
-
-        assert!(profile.preset_applied(preset_named("Future lighting").unwrap()));
-        assert!(!profile.preset_applied(preset_named("Voxel lighting").unwrap()));
-    }
-
-    #[test]
-    fn every_preset_belongs_to_a_group_that_is_listed() {
-        for preset in &PRESETS {
-            assert!(
-                GROUPS.contains(&preset.group),
-                "{} is in the unlisted group {}",
-                preset.name,
-                preset.group
-            );
-        }
-        for group in GROUPS {
-            assert!(presets_in(group).count() > 0, "{group} has no presets");
-        }
-    }
-
-    #[test]
-    fn preset_names_are_unique() {
-        for preset in &PRESETS {
-            let count = PRESETS
-                .iter()
-                .filter(|other| other.name == preset.name)
-                .count();
-            assert_eq!(count, 1, "{} appears more than once", preset.name);
-        }
-    }
-
-    #[test]
-    fn a_flag_is_recognised_as_belonging_to_a_preset() {
-        assert!(from_a_preset("FFlagDebugGraphicsPreferVulkan"));
-        assert!(from_a_preset("fflagdebuggraphicsprefervulkan"));
-        assert!(!from_a_preset("FFlagSomethingOfMyOwn"));
-    }
-
-    #[test]
-    fn removing_a_preset_takes_its_flags_with_it() {
-        let preset = preset_named("Ignore display scaling").unwrap();
-        let mut profile = FlagProfile::default();
-        profile.apply_preset(preset);
-        profile.remove_preset(preset);
-
-        assert!(profile.entries.is_empty());
-        assert!(!profile.preset_applied(preset));
-    }
-
-    #[test]
-    fn a_disabled_entry_does_not_count_as_a_preset_being_on() {
-        let preset = preset_named("Future lighting").unwrap();
-        let mut profile = FlagProfile::default();
-        profile.apply_preset(preset);
-        profile.entries[0].enabled = false;
-        assert!(!profile.preset_applied(preset));
-    }
-
-    #[test]
-    fn every_preset_uses_names_the_editor_would_accept() {
-        for preset in &PRESETS {
-            assert!(!preset.pairs.is_empty(), "{} has no flags", preset.name);
-            for (key, _) in preset.pairs {
-                assert!(validate_key(key).is_ok(), "{key} is not a usable flag name");
-                assert!(!looks_unusual(key), "{key} has an unfamiliar prefix");
-            }
-        }
     }
 
     #[test]

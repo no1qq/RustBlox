@@ -17,6 +17,7 @@ pub struct Settings {
     pub mods: ModSettings,
     pub discord: DiscordSettings,
     pub appearance: AppearanceSettings,
+    pub security: SecuritySettings,
     pub advanced: AdvancedSettings,
 }
 
@@ -30,6 +31,7 @@ impl Default for Settings {
             mods: ModSettings::default(),
             discord: DiscordSettings::default(),
             appearance: AppearanceSettings::default(),
+            security: SecuritySettings::default(),
             advanced: AdvancedSettings::default(),
         }
     }
@@ -42,6 +44,7 @@ impl Settings {
         notes.extend(self.game.validate());
         notes.extend(self.discord.validate());
         notes.extend(self.appearance.validate());
+        notes.extend(self.security.validate());
         notes.extend(self.advanced.validate());
         self.version = CURRENT_VERSION;
         notes
@@ -496,6 +499,28 @@ impl Density {
             Density::Comfortable => 1.0,
             Density::Compact => 0.84,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SecuritySettings {
+    pub anticheat_enabled: bool,
+    pub auto_terminate_threats: bool,
+}
+
+impl Default for SecuritySettings {
+    fn default() -> Self {
+        Self {
+            anticheat_enabled: true,
+            auto_terminate_threats: true,
+        }
+    }
+}
+
+impl SecuritySettings {
+    fn validate(&mut self) -> Vec<String> {
+        Vec::new()
     }
 }
 

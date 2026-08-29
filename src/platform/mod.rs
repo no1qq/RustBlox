@@ -7,14 +7,16 @@ mod windows;
 
 #[cfg(windows)]
 pub use windows::{
-    attach_parent_console, file_version, find_processes, free_space, open_path, open_url, protocol,
-    shortcut, spawn_detached, system_dark_mode,
+    attach_parent_console, clean_roblox_dir_proxies, file_version, find_processes, free_space,
+    open_path, open_url, protocol, scan_security, shortcut, spawn_detached, system_dark_mode,
+    terminate_threat_pid,
 };
 
 #[cfg(not(windows))]
 pub use fallback::{
-    attach_parent_console, file_version, find_processes, free_space, open_path, open_url, protocol,
-    shortcut, spawn_detached, system_dark_mode,
+    attach_parent_console, clean_roblox_dir_proxies, file_version, find_processes, free_space,
+    open_path, open_url, protocol, scan_security, shortcut, spawn_detached, system_dark_mode,
+    terminate_threat_pid,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,5 +66,44 @@ impl SchemeOwner {
             SchemeOwner::Roblox => "Roblox",
             SchemeOwner::Other => "Another application",
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreatKind {
+    KnownCheatProcess,
+    InjectedModule,
+    ScriptExecutorPipe,
+    RogueInstallFile,
+}
+
+impl ThreatKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ThreatKind::KnownCheatProcess => "External cheat or tool",
+            ThreatKind::InjectedModule => "Injected internal module",
+            ThreatKind::ScriptExecutorPipe => "Script executor pipe",
+            ThreatKind::RogueInstallFile => "Rogue proxy file",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SecurityThreat {
+    pub kind: ThreatKind,
+    pub name: String,
+    pub detail: String,
+    pub pid: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SecurityReport {
+    pub threats: Vec<SecurityThreat>,
+}
+
+impl SecurityReport {
+    #[allow(dead_code)]
+    pub fn is_clean(&self) -> bool {
+        self.threats.is_empty()
     }
 }

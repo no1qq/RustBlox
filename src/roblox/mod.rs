@@ -11,6 +11,7 @@ pub mod installer;
 pub mod launch;
 pub mod mods;
 pub mod process;
+pub mod security;
 pub mod uri;
 pub mod versions;
 
