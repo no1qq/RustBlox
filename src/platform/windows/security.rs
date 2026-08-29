@@ -2,9 +2,7 @@ use std::ffi::OsString;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
-use windows_sys::Win32::Foundation::{
-    CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, WAIT_OBJECT_0,
-};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM};
 use windows_sys::Win32::Storage::FileSystem::{
     FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
 };
@@ -13,20 +11,16 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     MODULEENTRY32W, PROCESSENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::Threading::{
-    OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_TERMINATE,
-};
+use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
 use windows_sys::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateIconFromResourceEx, EnumWindows, GetDesktopWindow, GetSystemMetrics,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, LoadIconW,
-    HICON, IDI_SHIELD, LR_DEFAULTCOLOR, SM_CXSMICON,
+    CreateIconFromResourceEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+    EnumWindows, GetSystemMetrics, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible, LoadIconW, PeekMessageW, RegisterClassW, TranslateMessage, HICON, IDI_SHIELD,
+    LR_DEFAULTCOLOR, MSG, PM_REMOVE, SM_CXSMICON, WNDCLASSW, WS_OVERLAPPED,
 };
-
-const SYNCHRONIZE: u32 = 0x0010_0000;
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
 
@@ -416,6 +410,14 @@ pub fn clean_roblox_dir_proxies(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn load_thewatcher_icon() -> HICON {
+    unsafe {
+        let hinstance = GetModuleHandleW(std::ptr::null());
+        let icon_res = LoadIconW(hinstance, 2 as _);
+        if icon_res != 0 as HICON {
+            return icon_res;
+        }
+    }
+
     let bytes = THEWATCHER_ICO;
     if bytes.len() >= 22 {
         let count = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
@@ -473,75 +475,90 @@ fn load_thewatcher_icon() -> HICON {
         }
     }
 
-    unsafe {
-        let hinstance = GetModuleHandleW(std::ptr::null());
-        let icon = LoadIconW(hinstance, std::ptr::dangling::<u16>());
-        if icon != 0 as HICON {
-            return icon;
-        }
-        LoadIconW(0 as _, IDI_SHIELD)
-    }
+    unsafe { LoadIconW(0 as _, IDI_SHIELD) }
 }
 
-pub fn show_tray_icon(tooltip: &str) {
-    unsafe {
-        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
-        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-        data.hWnd = GetDesktopWindow();
-        data.uID = 0x524258;
-        data.uFlags = NIF_ICON | NIF_TIP;
-        data.hIcon = load_thewatcher_icon();
+#[allow(dead_code)]
+pub fn show_tray_icon(_tooltip: &str) {}
 
-        let mut tip: [u16; 128] = [0; 128];
-        let utf16: Vec<u16> = tooltip.encode_utf16().take(127).collect();
-        tip[..utf16.len()].copy_from_slice(&utf16);
-        data.szTip = tip;
-
-        if Shell_NotifyIconW(NIM_MODIFY, &data) == 0 {
-            Shell_NotifyIconW(NIM_ADD, &data);
-        }
-    }
-}
-
-pub fn hide_tray_icon() {
-    unsafe {
-        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
-        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-        data.hWnd = GetDesktopWindow();
-        data.uID = 0x524258;
-        Shell_NotifyIconW(NIM_DELETE, &data);
-    }
-}
+pub fn hide_tray_icon() {}
 
 pub fn run_thewatcher_service(pid: u32, install_dir: PathBuf) {
-    show_tray_icon("TheWatcher Anti-Cheat - Active");
+    unsafe {
+        let hinstance = GetModuleHandleW(std::ptr::null());
+        let class_name = wide_null("TheWatcherTrayClass");
 
-    let process_handle =
-        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+        let wnd_class = WNDCLASSW {
+            style: 0,
+            lpfnWndProc: Some(DefWindowProcW),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: hinstance,
+            hIcon: 0 as _,
+            hCursor: 0 as _,
+            hbrBackground: 0 as _,
+            lpszMenuName: std::ptr::null(),
+            lpszClassName: class_name.as_ptr(),
+        };
+        RegisterClassW(&wnd_class);
 
-    loop {
-        let report = scan_security(Some(pid), Some(&install_dir));
-        for threat in report.threats {
-            if let Some(threat_pid) = threat.pid {
-                if threat_pid != pid {
-                    terminate_threat_pid(threat_pid);
+        let hwnd = CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            class_name.as_ptr(),
+            WS_OVERLAPPED,
+            0,
+            0,
+            0,
+            0,
+            0 as _,
+            0 as _,
+            hinstance,
+            std::ptr::null(),
+        );
+
+        let icon = load_thewatcher_icon();
+
+        let mut tip: [u16; 128] = [0; 128];
+        let tooltip = "TheWatcher Anti-Cheat - Active";
+        let utf16: Vec<u16> = tooltip.encode_utf16().take(127).collect();
+        tip[..utf16.len()].copy_from_slice(&utf16);
+
+        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
+        data.cbSize = 952;
+        data.hWnd = hwnd;
+        data.uID = 0x524258;
+        data.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
+        data.uCallbackMessage = 0x8001;
+        data.hIcon = icon;
+        data.szTip = tip;
+
+        Shell_NotifyIconW(NIM_ADD, &data);
+
+        let mut msg: MSG = std::mem::zeroed();
+
+        while crate::roblox::process::is_pid_alive(pid) {
+            while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE) != 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            let report = scan_security(Some(pid), Some(&install_dir));
+            for threat in report.threats {
+                if let Some(threat_pid) = threat.pid {
+                    if threat_pid != pid {
+                        terminate_threat_pid(threat_pid);
+                    }
                 }
             }
+
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
 
-        if process_handle.is_null() {
-            break;
-        }
+        Shell_NotifyIconW(NIM_DELETE, &data);
 
-        let wait = unsafe { WaitForSingleObject(process_handle, 500) };
-        if wait == WAIT_OBJECT_0 {
-            break;
+        if hwnd != 0 as _ {
+            DestroyWindow(hwnd);
         }
     }
-
-    if !process_handle.is_null() {
-        unsafe { CloseHandle(process_handle) };
-    }
-
-    hide_tray_icon();
 }

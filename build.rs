@@ -14,6 +14,9 @@ fn main() {
         if std::path::Path::new("assets/rustblox.ico").exists() {
             resource.set_icon("assets/rustblox.ico");
         }
+        if std::path::Path::new("assets/thewatcher.ico").exists() {
+            resource.set_icon_with_id("assets/thewatcher.ico", "2");
+        }
         if std::path::Path::new("assets/rustblox.manifest").exists() {
             resource.set_manifest_file("assets/rustblox.manifest");
         }
