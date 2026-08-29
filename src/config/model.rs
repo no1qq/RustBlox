@@ -61,7 +61,6 @@ pub struct LaunchSettings {
     pub launch_timeout_secs: u64,
     pub quick_targets: Vec<QuickTarget>,
     pub track_activity: bool,
-    pub integrations: Vec<Integration>,
 }
 
 impl Default for LaunchSettings {
@@ -74,7 +73,6 @@ impl Default for LaunchSettings {
             launch_timeout_secs: 30,
             quick_targets: Vec::new(),
             track_activity: true,
-            integrations: Vec::new(),
         }
     }
 }
@@ -110,32 +108,6 @@ impl LaunchSettings {
             }
             if target.name.chars().count() > 60 {
                 target.name = target.name.chars().take(60).collect();
-            }
-        }
-
-        let before = self.integrations.len();
-        self.integrations
-            .retain(|entry| !entry.program.as_os_str().is_empty());
-        if self.integrations.len() != before {
-            notes.push("removed programs that had no path".into());
-        }
-        if self.integrations.len() > Integration::MAX {
-            self.integrations.truncate(Integration::MAX);
-            notes.push(format!(
-                "the list of programs was trimmed to {}",
-                Integration::MAX
-            ));
-        }
-        for entry in &mut self.integrations {
-            if entry.name.chars().count() > 60 {
-                entry.name = entry.name.chars().take(60).collect();
-            }
-            if entry.arguments.chars().count() > 512 {
-                entry.arguments = entry.arguments.chars().take(512).collect();
-                notes.push(format!(
-                    "arguments for {} were trimmed",
-                    entry.display_name()
-                ));
             }
         }
 
@@ -329,33 +301,6 @@ impl DiscordSettings {
             notes.push("Discord was switched off because its application ID is not usable".into());
         }
         notes
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(default)]
-pub struct Integration {
-    pub name: String,
-    pub program: PathBuf,
-    pub arguments: String,
-    pub enabled: bool,
-}
-
-impl Integration {
-    pub const MAX: usize = 16;
-
-    pub fn is_usable(&self) -> bool {
-        self.enabled && !self.program.as_os_str().is_empty()
-    }
-
-    pub fn display_name(&self) -> String {
-        if !self.name.trim().is_empty() {
-            return self.name.trim().to_owned();
-        }
-        self.program
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Unnamed program".into())
     }
 }
 
@@ -684,68 +629,6 @@ impl LaunchOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_program_without_a_path_is_dropped_on_validation() {
-        let mut launch = LaunchSettings {
-            integrations: vec![
-                Integration {
-                    name: "Nothing".into(),
-                    ..Integration::default()
-                },
-                Integration {
-                    name: "Real".into(),
-                    program: PathBuf::from("C:/thing.exe"),
-                    enabled: true,
-                    ..Integration::default()
-                },
-            ],
-            ..LaunchSettings::default()
-        };
-
-        let notes = launch.validate();
-
-        assert_eq!(launch.integrations.len(), 1);
-        assert_eq!(launch.integrations[0].name, "Real");
-        assert!(notes.iter().any(|note| note.contains("no path")));
-    }
-
-    #[test]
-    fn a_program_is_only_started_when_it_is_on_and_has_a_path() {
-        let off = Integration {
-            program: PathBuf::from("C:/thing.exe"),
-            enabled: false,
-            ..Integration::default()
-        };
-        let pathless = Integration {
-            enabled: true,
-            ..Integration::default()
-        };
-        let good = Integration {
-            program: PathBuf::from("C:/thing.exe"),
-            enabled: true,
-            ..Integration::default()
-        };
-
-        assert!(!off.is_usable());
-        assert!(!pathless.is_usable());
-        assert!(good.is_usable());
-    }
-
-    #[test]
-    fn an_unnamed_program_falls_back_to_its_file_name() {
-        let entry = Integration {
-            program: PathBuf::from("C:/tools/OBS.exe"),
-            ..Integration::default()
-        };
-        assert_eq!(entry.display_name(), "OBS.exe");
-
-        let named = Integration {
-            name: "  Recorder  ".into(),
-            ..entry.clone()
-        };
-        assert_eq!(named.display_name(), "Recorder");
-    }
 
     #[test]
     fn nothing_is_written_while_the_page_is_switched_off() {

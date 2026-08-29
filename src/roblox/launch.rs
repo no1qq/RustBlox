@@ -176,28 +176,6 @@ pub struct ModPlan {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Extra {
-    pub name: String,
-    pub program: PathBuf,
-    pub arguments: String,
-}
-
-fn start_extras(extras: &[Extra]) -> usize {
-    let mut started = 0;
-    for extra in extras {
-        let arguments = split_arguments(&extra.arguments);
-        match platform::spawn_detached(&extra.program, &arguments, extra.program.parent()) {
-            Ok(_) => {
-                crate::log_info!("started {} alongside Roblox", extra.name);
-                started += 1;
-            }
-            Err(err) => crate::log_warn!("{} could not be started: {err}", extra.name),
-        }
-    }
-    started
-}
-
 #[derive(Clone, Debug)]
 pub struct LaunchPlan {
     pub target: LaunchTarget,
@@ -206,7 +184,6 @@ pub struct LaunchPlan {
     pub flag_profile: Option<FlagProfile>,
     pub game: Option<GamePlan>,
     pub mods: Option<ModPlan>,
-    pub extras: Vec<Extra>,
     pub backup_dir: PathBuf,
     pub extra_arguments: String,
     pub timeout: Duration,
@@ -405,16 +382,7 @@ fn execute(
         }
     };
     let pid = child.id();
-    let extras = start_extras(&plan.extras);
-    done(
-        emit,
-        StepId::Start,
-        match extras {
-            0 => format!("process {pid} created"),
-            1 => format!("process {pid} created, and one program alongside it"),
-            count => format!("process {pid} created, and {count} programs alongside it"),
-        },
-    );
+    done(emit, StepId::Start, format!("process {pid} created"));
 
     active(emit, StepId::Confirm);
     match confirm(&mut child, pid, plan.timeout, cancel) {

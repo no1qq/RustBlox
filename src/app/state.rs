@@ -13,7 +13,7 @@ use crate::roblox::detect::{Detection, ScanOptions};
 use crate::roblox::flags::{self, FlagProfile};
 use crate::roblox::gamesettings::{self, Snapshot};
 use crate::roblox::installer::InstallPlan;
-use crate::roblox::launch::{Extra, GamePlan, LaunchPlan, LaunchTarget, ModPlan};
+use crate::roblox::launch::{GamePlan, LaunchPlan, LaunchTarget, ModPlan};
 use crate::roblox::mods;
 use crate::roblox::process::RobloxStatus;
 use crate::roblox::versions;
@@ -872,18 +872,6 @@ impl AppState {
             },
             game: self.game_plan(),
             mods: Some(self.mod_plan()),
-            extras: self
-                .settings
-                .launch
-                .integrations
-                .iter()
-                .filter(|entry| entry.is_usable())
-                .map(|entry| Extra {
-                    name: entry.display_name(),
-                    program: entry.program.clone(),
-                    arguments: entry.arguments.clone(),
-                })
-                .collect(),
             backup_dir: self.store.paths().backup_dir(),
             extra_arguments: self.settings.advanced.extra_player_arguments.clone(),
             timeout: Duration::from_secs(self.settings.launch.launch_timeout_secs),
@@ -1500,13 +1488,6 @@ impl AppState {
         rfd::FileDialog::new()
             .set_title("Select a Roblox folder")
             .pick_folder()
-    }
-
-    pub fn pick_program(&mut self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .set_title("Choose a program to start with Roblox")
-            .add_filter("Programs", &["exe", "bat", "cmd", "lnk"])
-            .pick_file()
     }
 
     pub fn shutdown(&mut self) -> Result<()> {

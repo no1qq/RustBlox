@@ -92,12 +92,11 @@ pub fn status_pill(ui: &mut Ui, text: &str, tone: Tone, pulsing: bool) {
     }
     ui.painter().circle_filled(dot, PILL_DOT, color);
 
-    ui.painter().galley(
-        egui::pos2(
-            rect.left() + lead,
-            rect.center().y - galley.size().y / 2.0 + theme::optical_nudge(theme::size::SMALL),
-        ),
-        galley,
+    ui.painter().text(
+        egui::pos2(rect.left() + lead, rect.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        font,
         theme.palette.text,
     );
 }

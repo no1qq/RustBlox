@@ -137,7 +137,6 @@ fn updates(
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let theme = Theme::get(ui.ctx());
-    let advanced = state.settings.advanced_mode;
     let mut open_url = None;
     let mut open_path = None;
     let mut action = None;
@@ -172,63 +171,6 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
 
     ui.add_space(theme.metrics.gap_lg);
     updates(ui, &theme, state, &mut open_url, &mut action);
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    widgets::section(ui, "Known limits", None, |ui| {
-        widgets::banner(
-            ui,
-            feedback::Tone::Info,
-            "RustBlox cannot sign you in",
-            "Joining a specific server needs an authentication ticket that only Roblox itself can mint from your web session. RustBlox never asks for your password or cookie. That is why launching goes through the client or a deep link rather than a private join API.");
-        if advanced {
-            ui.add_space(theme.metrics.gap_sm);
-            widgets::banner(
-                ui,
-                feedback::Tone::Warning,
-                "Flags are unsupported by Roblox",
-                "The Flags page writes a file the client happens to read at startup. Roblox does not document it and can change or ignore it at any time.");
-        }
-    });
-
-    if !advanced {
-        finish(state, open_url, open_path, action);
-        return;
-    }
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    widgets::section(ui, "How launching works", None, |ui| {
-        for (title, body) in [
-                (
-                    "RustBlox starts the client directly",
-                    "It locates RobloxPlayerBeta.exe and runs it as a detached process, then watches for the client to appear before reporting success. It never fakes progress it has not measured.",
-                ),
-                (
-                    "Opening a place uses the deep link",
-                    "Quick launch entries pass a roblox:// link to the client, which the client resolves using the account you are already signed into.",
-                ),
-                (
-                    "Launch links from the website are passed through",
-                    "If RustBlox is registered as the roblox-player handler, links arriving from the browser are validated and handed to the client unchanged, sign-in ticket included.",
-                ),
-            ] {
-                widgets::nested(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(title)
-                            .font(theme::medium(theme::size::BODY))
-                            .color(theme.palette.text),
-                    );
-                    ui.add_space(2.0);
-                    ui.label(
-                        egui::RichText::new(body)
-                            .font(theme::text_style(theme::size::SMALL))
-                            .color(theme.palette.text_muted),
-                    );
-                });
-                ui.add_space(theme.metrics.gap_sm);
-            }
-    });
 
     ui.add_space(theme.metrics.gap_lg);
 

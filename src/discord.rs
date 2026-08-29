@@ -71,23 +71,29 @@ impl Connection {
             ));
         }
 
-        let mut last = None;
+        let mut handshake_err = None;
+        let mut opened_any = false;
+
         for index in 0..PIPES {
-            match open_pipe(index) {
-                Ok(pipe) => {
-                    let mut connection = Self { pipe, nonce: 0 };
-                    match connection.handshake(application_id.trim()) {
-                        Ok(()) => return Ok(connection),
-                        Err(err) => last = Some(err),
-                    }
+            if let Ok(pipe) = open_pipe(index) {
+                opened_any = true;
+                let mut connection = Self { pipe, nonce: 0 };
+                match connection.handshake(application_id.trim()) {
+                    Ok(()) => return Ok(connection),
+                    Err(err) => handshake_err = Some(err),
                 }
-                Err(err) => last = Some(err),
             }
         }
 
-        Err(last.unwrap_or_else(|| {
-            Error::invalid("Discord is not running, or its pipe is not reachable")
-        }))
+        if let Some(err) = handshake_err {
+            return Err(err);
+        }
+
+        if !opened_any {
+            return Err(Error::invalid("Discord is not running"));
+        }
+
+        Err(Error::invalid("Discord is not reachable"))
     }
 
     fn handshake(&mut self, application_id: &str) -> Result<()> {

@@ -12,7 +12,7 @@ RustBlox installs its own isolated copy of Roblox, launches it cleanly, protects
 - **In-Game Settings Control**: Unlock your FPS limit, graphics quality, performance stats overlay, mouse sensitivity, and reduced motion directly from the launcher.
 - **Custom Mods & Font Tool**: Easily apply custom fonts and textures with automatic backups so originals are always safely restored.
 - **Discord Rich Presence**: Show the game you are playing and elapsed time directly on your Discord profile.
-- **Customizable Shortcuts & Launch Options**: Desktop and Start menu shortcuts, deep link support (`roblox:` / `roblox-player:`), and programs launched alongside Roblox.
+- **Customizable Shortcuts & Launch Options**: Desktop and Start menu shortcuts and deep link support (`roblox:` / `roblox-player:`).
 - **Modern Adaptive Interface**: Clean interface with light and dark mode following Windows system preferences.
 
 ## Getting Started
