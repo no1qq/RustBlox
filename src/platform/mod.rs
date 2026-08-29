@@ -76,6 +76,9 @@ pub enum ThreatKind {
     InjectedModule,
     ScriptExecutorPipe,
     RogueInstallFile,
+    ModuleStomping,
+    HookTampering,
+    UnauthorizedIpcServer,
 }
 
 impl ThreatKind {
@@ -86,6 +89,11 @@ impl ThreatKind {
             ThreatKind::InjectedModule => "Injected internal module",
             ThreatKind::ScriptExecutorPipe => "Script executor pipe",
             ThreatKind::RogueInstallFile => "Rogue proxy file",
+            ThreatKind::ModuleStomping => "Module stomping / in-memory patch",
+            ThreatKind::HookTampering => "Hook tampering / detours",
+            ThreatKind::UnauthorizedIpcServer => {
+                "Unauthorized script executor IPC/WebSocket endpoint"
+            }
         }
     }
 }

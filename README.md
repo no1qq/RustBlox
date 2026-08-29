@@ -1,9 +1,9 @@
 <div align="center">
   <img src="assets/logo.png" width="96" alt="RustBlox logo" />
 
-  # RustBlox
+# RustBlox
 
-  a lightweight, fast Roblox launcher and bootstrapper for Windows, written in Rust.
+a lightweight, fast Roblox launcher and bootstrapper for Windows, written in Rust.
 
   <p>
     <a href="https://github.com/no1qq/RustBlox/releases"><img src="https://img.shields.io/badge/release-v0.1.0-ff5c00?style=flat-square&logo=github&logoColor=white" alt="Release" /></a>

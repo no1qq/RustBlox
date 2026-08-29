@@ -15,9 +15,10 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, WIN32_FIND_DATAW,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, Process32FirstW, Process32NextW,
+    MODULEENTRY32W, PROCESSENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
 };
-use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows_sys::Win32::System::Memory::{
     VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_PRIVATE, PAGE_EXECUTE,
     PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
@@ -25,7 +26,8 @@ use windows_sys::Win32::System::Memory::{
 use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
-    TerminateProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    TerminateProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_INFORMATION,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, PROCESS_VM_READ,
 };
 use windows_sys::Win32::UI::Shell::{
     ShellExecuteExW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
@@ -230,6 +232,15 @@ const KERNEL_CHEAT_DEVICE_PATHS: &[&str] = &[
     r"\\.\interception",
 ];
 
+const CRITICAL_INTEGRITY_DLLS: &[&str] = &[
+    "ntdll.dll",
+    "kernel32.dll",
+    "kernelbase.dll",
+    "user32.dll",
+    "d3d11.dll",
+    "dxgi.dll",
+];
+
 struct OwnedHandle(HANDLE);
 
 impl Drop for OwnedHandle {
@@ -261,12 +272,14 @@ pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> Sec
     scan_cheat_processes(&mut threats, &mut process_map);
     scan_cheat_windows(&process_map, &mut threats);
     scan_executor_pipes(&mut threats);
+    scan_unauthorized_ipc_endpoints(&mut threats);
     scan_kernel_cheat_drivers(&mut threats);
 
     if let Some(pid) = player_pid {
         scan_roblox_memory_handles(pid, &mut threats);
         scan_layered_esp_overlays(pid, &mut threats);
         scan_roblox_unbacked_memory(pid, &mut threats);
+        scan_roblox_module_integrity(pid, &mut threats);
     }
 
     if let Some(dir) = install_dir {
@@ -870,8 +883,9 @@ unsafe extern "system" fn enum_overlays_proc(hwnd: HWND, lparam: LPARAM) -> i32 
     let is_layered = (ex_style & 0x00080000) != 0;
     let is_transparent = (ex_style & 0x00000020) != 0;
     let is_topmost = (ex_style & 0x00000008) != 0;
+    let is_noactivate = (ex_style & 0x08000000) != 0;
 
-    if is_layered && (is_transparent || is_topmost) {
+    if is_layered && (is_transparent || is_topmost || is_noactivate) {
         let mut pid: u32 = 0;
         GetWindowThreadProcessId(hwnd, &mut pid);
         let ctx = &mut *(lparam as *mut OverlayScanContext);
@@ -884,13 +898,16 @@ unsafe extern "system" fn enum_overlays_proc(hwnd: HWND, lparam: LPARAM) -> i32 
                 let roblox_w = (ctx.roblox_rect.right - ctx.roblox_rect.left).abs();
                 let roblox_h = (ctx.roblox_rect.bottom - ctx.roblox_rect.top).abs();
 
-                if width >= 200 && height >= 200 {
+                if width >= 150 && height >= 150 {
                     let intersects = rect.left < ctx.roblox_rect.right
                         && rect.right > ctx.roblox_rect.left
                         && rect.top < ctx.roblox_rect.bottom
                         && rect.bottom > ctx.roblox_rect.top;
 
-                    if intersects || (width == roblox_w && height == roblox_h) {
+                    let size_match =
+                        (width - roblox_w).abs() <= 20 && (height - roblox_h).abs() <= 20;
+
+                    if intersects || size_match {
                         let proc_name =
                             get_process_name_by_pid(pid).unwrap_or_else(|| "Unknown".into());
                         ctx.threats.push(SecurityThreat {
@@ -1029,6 +1046,297 @@ fn scan_roblox_unbacked_memory(roblox_pid: u32, threats: &mut Vec<SecurityThreat
             break;
         }
         address = next;
+    }
+}
+
+type ReadProcessMemoryFn = unsafe extern "system" fn(
+    h_process: HANDLE,
+    lp_base_address: *const std::ffi::c_void,
+    lp_buffer: *mut std::ffi::c_void,
+    n_size: usize,
+    lp_number_of_bytes_read: *mut usize,
+) -> i32;
+
+fn parse_pe_text_section(bytes: &[u8]) -> Option<(u32, u32, u32, u32)> {
+    if bytes.len() < 0x40 {
+        return None;
+    }
+    if bytes[0] != b'M' || bytes[1] != b'Z' {
+        return None;
+    }
+    let e_lfanew =
+        u32::from_le_bytes([bytes[0x3C], bytes[0x3D], bytes[0x3E], bytes[0x3F]]) as usize;
+    if e_lfanew + 0x18 > bytes.len() {
+        return None;
+    }
+    if &bytes[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+        return None;
+    }
+
+    let num_sections = u16::from_le_bytes([bytes[e_lfanew + 6], bytes[e_lfanew + 7]]) as usize;
+    let size_opt_header = u16::from_le_bytes([bytes[e_lfanew + 20], bytes[e_lfanew + 21]]) as usize;
+    let section_table_offset = e_lfanew + 24 + size_opt_header;
+
+    for i in 0..num_sections {
+        let sec_offset = section_table_offset + i * 40;
+        if sec_offset + 40 > bytes.len() {
+            break;
+        }
+        let sec_name = &bytes[sec_offset..sec_offset + 8];
+        let name_trimmed = sec_name.split(|&b| b == 0).next().unwrap_or(sec_name);
+        if name_trimmed == b".text" {
+            let virtual_size = u32::from_le_bytes([
+                bytes[sec_offset + 8],
+                bytes[sec_offset + 9],
+                bytes[sec_offset + 10],
+                bytes[sec_offset + 11],
+            ]);
+            let virtual_address = u32::from_le_bytes([
+                bytes[sec_offset + 12],
+                bytes[sec_offset + 13],
+                bytes[sec_offset + 14],
+                bytes[sec_offset + 15],
+            ]);
+            let size_of_raw_data = u32::from_le_bytes([
+                bytes[sec_offset + 16],
+                bytes[sec_offset + 17],
+                bytes[sec_offset + 18],
+                bytes[sec_offset + 19],
+            ]);
+            let pointer_to_raw_data = u32::from_le_bytes([
+                bytes[sec_offset + 20],
+                bytes[sec_offset + 21],
+                bytes[sec_offset + 22],
+                bytes[sec_offset + 23],
+            ]);
+            return Some((
+                virtual_address,
+                virtual_size,
+                pointer_to_raw_data,
+                size_of_raw_data,
+            ));
+        }
+    }
+    None
+}
+
+fn scan_roblox_module_integrity(roblox_pid: u32, threats: &mut Vec<SecurityThreat>) {
+    let snapshot =
+        unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, roblox_pid) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return;
+    }
+    let snapshot = OwnedHandle(snapshot);
+
+    let h_process =
+        unsafe { OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, 0, roblox_pid) };
+    if h_process.is_null() {
+        return;
+    }
+    let h_process = OwnedHandle(h_process);
+
+    let kernel32_name = wide_null("kernel32.dll");
+    let h_kernel32 = unsafe { GetModuleHandleW(kernel32_name.as_ptr()) };
+    if h_kernel32.is_null() {
+        return;
+    }
+    let rpm_proc = unsafe { GetProcAddress(h_kernel32, c"ReadProcessMemory".as_ptr() as _) };
+    let Some(rpm_proc_addr) = rpm_proc else {
+        return;
+    };
+    let read_process_memory: ReadProcessMemoryFn = unsafe { std::mem::transmute(rpm_proc_addr) };
+
+    let mut entry = MODULEENTRY32W {
+        dwSize: std::mem::size_of::<MODULEENTRY32W>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+
+    let mut ok = unsafe { Module32FirstW(snapshot.0, &mut entry) };
+    while ok != 0 {
+        let mod_name = from_wide_nul(&entry.szModule);
+        let mod_path = from_wide_nul(&entry.szExePath);
+        let mod_name_lower = mod_name.to_ascii_lowercase();
+        let mod_path_lower = mod_path.to_ascii_lowercase();
+
+        let is_trusted_dir = mod_path_lower.starts_with(r"c:\windows\system32\")
+            || mod_path_lower.starts_with(r"c:\windows\syswow64\")
+            || mod_path_lower.starts_with(r"c:\windows\winsxs\")
+            || mod_path_lower.contains(r"\rustblox\data\versions\")
+            || mod_path_lower.contains(r"\roblox\versions\")
+            || mod_path_lower.contains(r"\discord")
+            || mod_path_lower.contains(r"\nvidia")
+            || mod_path_lower.contains(r"\obs-studio");
+
+        if !is_trusted_dir
+            && (mod_path_lower.contains(r"\temp\")
+                || mod_path_lower.contains(r"\downloads\")
+                || mod_path_lower.contains(r"\appdata\local\temp\"))
+        {
+            threats.push(SecurityThreat {
+                kind: ThreatKind::InjectedModule,
+                name: mod_name.clone(),
+                detail: format!(
+                    "Rogue internal DLL injected into Roblox from suspicious directory: {mod_path}"
+                ),
+                pid: Some(roblox_pid),
+            });
+        }
+
+        if CRITICAL_INTEGRITY_DLLS.contains(&mod_name_lower.as_str()) {
+            if let Ok(disk_bytes) = std::fs::read(&mod_path) {
+                if let Some((v_addr, v_size, raw_ptr, raw_size)) =
+                    parse_pe_text_section(&disk_bytes)
+                {
+                    let compare_len = std::cmp::min(v_size as usize, raw_size as usize);
+                    let inspect_len = std::cmp::min(compare_len, 4096);
+
+                    if inspect_len > 0 && (raw_ptr as usize + inspect_len) <= disk_bytes.len() {
+                        let base_addr = entry.modBaseAddr as usize;
+                        let target_mem_addr = base_addr + v_addr as usize;
+                        let mut mem_buf = vec![0u8; inspect_len];
+                        let mut bytes_read: usize = 0;
+
+                        let read_ok = unsafe {
+                            read_process_memory(
+                                h_process.0,
+                                target_mem_addr as *const std::ffi::c_void,
+                                mem_buf.as_mut_ptr() as *mut std::ffi::c_void,
+                                inspect_len,
+                                &mut bytes_read,
+                            )
+                        };
+
+                        if read_ok != 0 && bytes_read == inspect_len {
+                            let disk_slice =
+                                &disk_bytes[raw_ptr as usize..raw_ptr as usize + inspect_len];
+                            let mut mismatches = 0;
+                            let mut has_hook_jump = false;
+
+                            for i in 0..inspect_len {
+                                if mem_buf[i] != disk_slice[i] {
+                                    mismatches += 1;
+                                    if mem_buf[i] == 0xE9
+                                        || (i + 1 < inspect_len
+                                            && mem_buf[i] == 0xFF
+                                            && mem_buf[i + 1] == 0x25)
+                                    {
+                                        has_hook_jump = true;
+                                    }
+                                }
+                            }
+
+                            if has_hook_jump || mismatches > 64 {
+                                threats.push(SecurityThreat {
+                                    kind: if mismatches > 64 {
+                                        ThreatKind::ModuleStomping
+                                    } else {
+                                        ThreatKind::HookTampering
+                                    },
+                                    name: mod_name.clone(),
+                                    detail: format!(
+                                        "Code section integrity violation in {mod_name} (Base: {base_addr:#x}, Mismatched bytes: {mismatches})"
+                                    ),
+                                    pid: Some(roblox_pid),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ok = unsafe { Module32NextW(snapshot.0, &mut entry) };
+    }
+}
+
+#[repr(C)]
+struct MIB_TCPROW_OWNER_PID {
+    dw_state: u32,
+    dw_local_addr: u32,
+    dw_local_port: u32,
+    dw_remote_addr: u32,
+    dw_remote_port: u32,
+    dw_owning_pid: u32,
+}
+
+type GetExtendedTcpTableFn = unsafe extern "system" fn(
+    p_tcp_table: *mut std::ffi::c_void,
+    pdw_size: *mut u32,
+    b_order: i32,
+    ul_af: u32,
+    table_class: i32,
+    reserved: u32,
+) -> u32;
+
+fn scan_unauthorized_ipc_endpoints(threats: &mut Vec<SecurityThreat>) {
+    let iphlpapi_name = wide_null("iphlpapi.dll");
+    let h_iphlpapi = unsafe { LoadLibraryW(iphlpapi_name.as_ptr()) };
+    if h_iphlpapi.is_null() {
+        return;
+    }
+    let h_guard = OwnedHandle(h_iphlpapi);
+
+    let proc = unsafe { GetProcAddress(h_guard.0, c"GetExtendedTcpTable".as_ptr() as _) };
+    let Some(proc_addr) = proc else {
+        return;
+    };
+    let get_extended_tcp_table: GetExtendedTcpTableFn = unsafe { std::mem::transmute(proc_addr) };
+
+    let mut size: u32 = 0;
+    let _ = unsafe { get_extended_tcp_table(std::ptr::null_mut(), &mut size, 0, 2, 5, 0) };
+
+    if size == 0 {
+        return;
+    }
+
+    let mut buffer: Vec<u8> = vec![0; size as usize];
+    let res = unsafe {
+        get_extended_tcp_table(
+            buffer.as_mut_ptr() as *mut std::ffi::c_void,
+            &mut size,
+            0,
+            2,
+            5,
+            0,
+        )
+    };
+
+    if res != 0 || buffer.len() < 4 {
+        return;
+    }
+
+    let num_entries = unsafe { *(buffer.as_ptr() as *const u32) } as usize;
+    let row_size = std::mem::size_of::<MIB_TCPROW_OWNER_PID>();
+    let table_ptr = unsafe { buffer.as_ptr().add(4) as *const MIB_TCPROW_OWNER_PID };
+
+    for i in 0..num_entries {
+        if 4 + (i + 1) * row_size > buffer.len() {
+            break;
+        }
+        let row = unsafe { &*table_ptr.add(i) };
+        let port = u16::from_be((row.dw_local_port & 0xFFFF) as u16);
+        let pid = row.dw_owning_pid;
+
+        if row.dw_state == 2
+            && (row.dw_local_addr == 0x0100007F || row.dw_local_addr == 0)
+            && pid != 0
+            && pid != 4
+            && !is_whitelisted_pid(pid)
+        {
+            let proc_name = get_process_name_by_pid(pid).unwrap_or_else(|| "Unknown".into());
+            let proc_path = get_process_image_path(pid);
+
+            if !is_valid_whitelisted_path(&proc_name, proc_path.as_deref()) {
+                threats.push(SecurityThreat {
+                    kind: ThreatKind::UnauthorizedIpcServer,
+                    name: format!("Local IPC Server ({proc_name})"),
+                    detail: format!(
+                        "Unauthorized script executor IPC/WebSocket endpoint listening on 127.0.0.1:{port} (PID {pid}, {proc_name})"
+                    ),
+                    pid: Some(pid),
+                });
+            }
+        }
     }
 }
 
@@ -1220,6 +1528,44 @@ pub fn enable_debug_privilege() -> bool {
     }
 }
 
+type SetSecurityInfoFn = unsafe extern "system" fn(
+    handle: HANDLE,
+    object_type: u32,
+    security_info: u32,
+    psid_owner: *const std::ffi::c_void,
+    psid_group: *const std::ffi::c_void,
+    p_dacl: *const std::ffi::c_void,
+    p_sacl: *const std::ffi::c_void,
+) -> u32;
+
+pub fn harden_watchdog_process() {
+    let advapi_name = wide_null("advapi32.dll");
+    let h_advapi = unsafe { LoadLibraryW(advapi_name.as_ptr()) };
+    if h_advapi.is_null() {
+        return;
+    }
+    let h_guard = OwnedHandle(h_advapi);
+
+    let proc = unsafe { GetProcAddress(h_guard.0, c"SetSecurityInfo".as_ptr() as _) };
+    let Some(proc_addr) = proc else {
+        return;
+    };
+    let set_security_info: SetSecurityInfoFn = unsafe { std::mem::transmute(proc_addr) };
+
+    let current_proc = unsafe { GetCurrentProcess() };
+    unsafe {
+        let _ = set_security_info(
+            current_proc,
+            6,
+            0x00000004 | 0x80000000,
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+        );
+    }
+}
+
 pub fn spawn_elevated(program: &Path, args: &[String]) -> crate::error::Result<()> {
     let file = wide_null(&program.display().to_string());
     let params_str = args
@@ -1263,6 +1609,7 @@ pub fn spawn_elevated(program: &Path, args: &[String]) -> crate::error::Result<(
 
 pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
     enable_debug_privilege();
+    harden_watchdog_process();
 
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
@@ -1354,20 +1701,28 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
 
             if pid != 0
                 && consecutive_dead == 0
-                && last_scan.elapsed() >= std::time::Duration::from_secs(3)
+                && last_scan.elapsed() >= std::time::Duration::from_millis(800)
             {
                 let report = scan_security(Some(pid), Some(&install_dir));
                 for threat in report.threats {
                     if let Some(threat_pid) = threat.pid {
                         if threat_pid != pid {
                             terminate_threat_pid(threat_pid);
+                        } else {
+                            if !roblox_handle.is_null() {
+                                let term_handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+                                if !term_handle.is_null() {
+                                    TerminateProcess(term_handle, 1);
+                                    CloseHandle(term_handle);
+                                }
+                            }
                         }
                     }
                 }
                 last_scan = std::time::Instant::now();
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            std::thread::sleep(std::time::Duration::from_millis(150));
         }
 
         if !roblox_handle.is_null() {
@@ -1506,5 +1861,27 @@ mod tests {
         assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\GIO"));
         assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\gdrv"));
         assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\interception"));
+    }
+
+    #[test]
+    fn test_threat_kind_labels() {
+        assert_eq!(
+            ThreatKind::ModuleStomping.label(),
+            "Module stomping / in-memory patch"
+        );
+        assert_eq!(
+            ThreatKind::HookTampering.label(),
+            "Hook tampering / detours"
+        );
+        assert_eq!(
+            ThreatKind::UnauthorizedIpcServer.label(),
+            "Unauthorized script executor IPC/WebSocket endpoint"
+        );
+    }
+
+    #[test]
+    fn test_pe_parser_handles_invalid_data() {
+        assert!(parse_pe_text_section(&[]).is_none());
+        assert!(parse_pe_text_section(&[0u8; 100]).is_none());
     }
 }
