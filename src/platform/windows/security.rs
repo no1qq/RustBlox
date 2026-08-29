@@ -4,19 +4,25 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DuplicateHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LUID,
+    CloseHandle, DuplicateHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LUID, RECT,
 };
 use windows_sys::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
     TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
+    CreateFileW, FindClose, FindFirstFileW, FindNextFileW, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, WIN32_FIND_DATAW,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+use windows_sys::Win32::System::Memory::{
+    VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_PRIVATE, PAGE_EXECUTE,
+    PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
+};
+use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
     TerminateProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
@@ -27,9 +33,10 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateIconFromResourceEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    EnumWindows, GetSystemMetrics, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible, LoadIconW, PeekMessageW, RegisterClassW, TranslateMessage, HICON, IDI_SHIELD,
-    LR_DEFAULTCOLOR, MSG, PM_REMOVE, SM_CXSMICON, SW_HIDE, WNDCLASSW, WS_OVERLAPPED,
+    EnumWindows, GetSystemMetrics, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
+    GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, LoadIconW, PeekMessageW,
+    RegisterClassW, TranslateMessage, GWL_EXSTYLE, HICON, IDI_SHIELD, LR_DEFAULTCOLOR, MSG,
+    PM_REMOVE, SM_CXSMICON, SW_HIDE, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
@@ -39,6 +46,12 @@ const THEWATCHER_ICO: &[u8] = include_bytes!("../../../assets/thewatcher.ico");
 const CHEAT_PROCESS_KEYWORDS: &[&str] = &[
     "matrix",
     "matrixhub",
+    "matcha",
+    "matchahub",
+    "matchav2",
+    "matcha_external",
+    "aimmy",
+    "neuralaim",
     "newui",
     "newuiv3",
     "solara",
@@ -53,6 +66,15 @@ const CHEAT_PROCESS_KEYWORDS: &[&str] = &[
     "krampus",
     "xenos",
     "xeno",
+    "valex",
+    "zenith",
+    "horizon",
+    "nyx",
+    "aether",
+    "zeroesp",
+    "synapsez",
+    "potassium",
+    "macsploit",
     "extremeinjector",
     "cheatengine",
     "x64dbg",
@@ -71,11 +93,18 @@ const CHEAT_PROCESS_KEYWORDS: &[&str] = &[
     "injector",
     "executor",
     "exploit",
+    "interception",
 ];
 
 const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
     "matrix hub",
     "matrix",
+    "matcha external",
+    "matcha v2",
+    "matcha",
+    "matchahub",
+    "aimmy",
+    "neural aim",
     "newuiv3",
     "solara",
     "wave",
@@ -90,6 +119,14 @@ const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
     "electron",
     "krnl",
     "swift",
+    "valex",
+    "zenith",
+    "horizon",
+    "nyx",
+    "aether",
+    "zeroesp",
+    "synapse z",
+    "potassium",
     "nemesis",
     "olympus",
     "valyse",
@@ -115,6 +152,8 @@ const CHEAT_WINDOW_KEYWORDS: &[&str] = &[
 
 #[allow(dead_code)]
 const KNOWN_EXECUTOR_DLLS: &[&str] = &[
+    "matcha.dll",
+    "matchainject.dll",
     "solara.dll",
     "solarainject.dll",
     "celery.dll",
@@ -123,6 +162,8 @@ const KNOWN_EXECUTOR_DLLS: &[&str] = &[
     "waveinject.dll",
     "swift.dll",
     "swiftinject.dll",
+    "synapsez.dll",
+    "potassium.dll",
     "krnl.dll",
     "fluxus.dll",
     "oxygenu.dll",
@@ -151,6 +192,11 @@ const PROXY_DLL_NAMES: &[&str] = &[
 const EXECUTOR_PIPE_PREFIXES: &[&str] = &[
     "matrix",
     "matrix_pipe",
+    "matcha",
+    "matcha_pipe",
+    "aimmy",
+    "synapsez",
+    "potassium",
     "celery",
     "solara",
     "wave",
@@ -165,6 +211,23 @@ const EXECUTOR_PIPE_PREFIXES: &[&str] = &[
     "sw_pipe",
     "valyse",
     "wearedevs",
+];
+
+const KERNEL_CHEAT_DEVICE_PATHS: &[&str] = &[
+    r"\\.\Matcha",
+    r"\\.\MatchaDriver",
+    r"\\.\MatchaDev",
+    r"\\.\GIO",
+    r"\\.\gdrv",
+    r"\\.\mhyprot2",
+    r"\\.\RTCore64",
+    r"\\.\DBUtil_2_3",
+    r"\\.\EchoDrv",
+    r"\\.\DirectIo64",
+    r"\\.\Capcom",
+    r"\\.\KIO",
+    r"\\.\Physmem",
+    r"\\.\interception",
 ];
 
 struct OwnedHandle(HANDLE);
@@ -198,9 +261,12 @@ pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> Sec
     scan_cheat_processes(&mut threats, &mut process_map);
     scan_cheat_windows(&process_map, &mut threats);
     scan_executor_pipes(&mut threats);
+    scan_kernel_cheat_drivers(&mut threats);
 
     if let Some(pid) = player_pid {
         scan_roblox_memory_handles(pid, &mut threats);
+        scan_layered_esp_overlays(pid, &mut threats);
+        scan_roblox_unbacked_memory(pid, &mut threats);
     }
 
     if let Some(dir) = install_dir {
@@ -732,6 +798,240 @@ fn scan_cheat_windows(_process_map: &HashMap<u32, String>, threats: &mut Vec<Sec
     threats.extend(context.threats);
 }
 
+fn get_pipe_server_pid(pipe_path: &str) -> Option<u32> {
+    let wide_path = wide_null(pipe_path);
+    let file_handle = unsafe {
+        CreateFileW(
+            wide_path.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+
+    if file_handle == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let file_handle = OwnedHandle(file_handle);
+
+    let mut server_pid: u32 = 0;
+    let res = unsafe { GetNamedPipeServerProcessId(file_handle.0, &mut server_pid) };
+    if res != 0 && server_pid != 0 {
+        Some(server_pid)
+    } else {
+        None
+    }
+}
+
+fn scan_kernel_cheat_drivers(threats: &mut Vec<SecurityThreat>) {
+    for &device in KERNEL_CHEAT_DEVICE_PATHS {
+        let wide_path = wide_null(device);
+        let handle = unsafe {
+            CreateFileW(
+                wide_path.as_ptr(),
+                FILE_READ_ATTRIBUTES | 0x80000000,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if handle != INVALID_HANDLE_VALUE {
+            unsafe { CloseHandle(handle) };
+            threats.push(SecurityThreat {
+                kind: ThreatKind::KnownCheatProcess,
+                name: device.to_string(),
+                detail: format!(
+                    "Active kernel cheat or vulnerable BYOVD driver device detected: {device}"
+                ),
+                pid: None,
+            });
+        }
+    }
+}
+
+struct OverlayScanContext {
+    roblox_rect: RECT,
+    roblox_pid: u32,
+    threats: Vec<SecurityThreat>,
+}
+
+unsafe extern "system" fn enum_overlays_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
+    if IsWindowVisible(hwnd) == 0 {
+        return 1;
+    }
+
+    let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    let is_layered = (ex_style & 0x00080000) != 0;
+    let is_transparent = (ex_style & 0x00000020) != 0;
+    let is_topmost = (ex_style & 0x00000008) != 0;
+
+    if is_layered && (is_transparent || is_topmost) {
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let ctx = &mut *(lparam as *mut OverlayScanContext);
+
+        if pid != 0 && pid != 4 && pid != ctx.roblox_pid && !is_whitelisted_pid(pid) {
+            let mut rect: RECT = std::mem::zeroed();
+            if GetWindowRect(hwnd, &mut rect) != 0 {
+                let width = (rect.right - rect.left).abs();
+                let height = (rect.bottom - rect.top).abs();
+                let roblox_w = (ctx.roblox_rect.right - ctx.roblox_rect.left).abs();
+                let roblox_h = (ctx.roblox_rect.bottom - ctx.roblox_rect.top).abs();
+
+                if width >= 200 && height >= 200 {
+                    let intersects = rect.left < ctx.roblox_rect.right
+                        && rect.right > ctx.roblox_rect.left
+                        && rect.top < ctx.roblox_rect.bottom
+                        && rect.bottom > ctx.roblox_rect.top;
+
+                    if intersects || (width == roblox_w && height == roblox_h) {
+                        let proc_name =
+                            get_process_name_by_pid(pid).unwrap_or_else(|| "Unknown".into());
+                        ctx.threats.push(SecurityThreat {
+                            kind: ThreatKind::KnownCheatProcess,
+                            name: format!("ESP Overlay ({proc_name})"),
+                            detail: format!(
+                                "Transparent click-through ESP overlay window detected: {proc_name} (PID {pid}, Style: {ex_style:#x})"
+                            ),
+                            pid: Some(pid),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    1
+}
+
+struct RobloxWindowContext {
+    target_pid: u32,
+    found_hwnd: Option<HWND>,
+}
+
+unsafe extern "system" fn enum_roblox_window_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
+    if IsWindowVisible(hwnd) == 0 {
+        return 1;
+    }
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    let ctx = &mut *(lparam as *mut RobloxWindowContext);
+    if pid == ctx.target_pid {
+        let mut rect: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut rect) != 0 {
+            let width = (rect.right - rect.left).abs();
+            let height = (rect.bottom - rect.top).abs();
+            if width > 100 && height > 100 {
+                ctx.found_hwnd = Some(hwnd);
+                return 0;
+            }
+        }
+    }
+    1
+}
+
+fn find_roblox_main_window(pid: u32) -> Option<HWND> {
+    let mut ctx = RobloxWindowContext {
+        target_pid: pid,
+        found_hwnd: None,
+    };
+    unsafe {
+        EnumWindows(Some(enum_roblox_window_proc), &mut ctx as *mut _ as LPARAM);
+    }
+    ctx.found_hwnd
+}
+
+fn scan_layered_esp_overlays(roblox_pid: u32, threats: &mut Vec<SecurityThreat>) {
+    let roblox_hwnd = find_roblox_main_window(roblox_pid);
+    let mut roblox_rect: RECT = unsafe { std::mem::zeroed() };
+
+    if let Some(hwnd) = roblox_hwnd {
+        unsafe {
+            if GetWindowRect(hwnd, &mut roblox_rect) == 0 {
+                return;
+            }
+        }
+    } else {
+        return;
+    }
+
+    let mut context = OverlayScanContext {
+        roblox_rect,
+        roblox_pid,
+        threats: Vec::new(),
+    };
+
+    unsafe {
+        EnumWindows(Some(enum_overlays_proc), &mut context as *mut _ as LPARAM);
+    }
+
+    threats.extend(context.threats);
+}
+
+fn scan_roblox_unbacked_memory(roblox_pid: u32, threats: &mut Vec<SecurityThreat>) {
+    let roblox_handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, roblox_pid) };
+    if roblox_handle.is_null() {
+        return;
+    }
+    let roblox_handle = OwnedHandle(roblox_handle);
+
+    let mut address: usize = 0x10000;
+    let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+    let mbi_size = std::mem::size_of::<MEMORY_BASIC_INFORMATION>();
+    let mut unbacked_regions = 0;
+
+    while address < 0x7FFFFFFF0000 {
+        let queried = unsafe {
+            VirtualQueryEx(
+                roblox_handle.0,
+                address as *const std::ffi::c_void,
+                &mut mbi,
+                mbi_size,
+            )
+        };
+
+        if queried == 0 {
+            break;
+        }
+
+        let is_executable = (mbi.Protect
+            & (PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE | PAGE_EXECUTE_WRITECOPY))
+            != 0;
+
+        if mbi.State == MEM_COMMIT
+            && mbi.Type == MEM_PRIVATE
+            && is_executable
+            && mbi.RegionSize >= 4096
+        {
+            unbacked_regions += 1;
+            if unbacked_regions == 1 {
+                threats.push(SecurityThreat {
+                    kind: ThreatKind::KnownCheatProcess,
+                    name: "Unbacked Executable Memory in Roblox".into(),
+                    detail: format!(
+                        "Manual-mapped injector code or unbacked executable hook memory detected in Roblox at address {:#x} (Size: {} bytes)",
+                        mbi.BaseAddress as usize,
+                        mbi.RegionSize
+                    ),
+                    pid: Some(roblox_pid),
+                });
+            }
+        }
+
+        let next = (mbi.BaseAddress as usize).saturating_add(mbi.RegionSize);
+        if next <= address {
+            break;
+        }
+        address = next;
+    }
+}
+
 fn scan_executor_pipes(threats: &mut Vec<SecurityThreat>) {
     let pipe_search = wide_null(r"\\.\pipe\*");
     let mut find_data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };
@@ -759,11 +1059,14 @@ fn scan_executor_pipes(threats: &mut Vec<SecurityThreat>) {
             .iter()
             .any(|prefix| pipe_lower.contains(prefix))
         {
+            let full_pipe_name = format!(r"\\.\pipe\{pipe_name}");
+            let server_pid = get_pipe_server_pid(&full_pipe_name);
+
             threats.push(SecurityThreat {
                 kind: ThreatKind::ScriptExecutorPipe,
-                name: format!(r"\\.\pipe\{pipe_name}"),
+                name: full_pipe_name,
                 detail: "Active script executor communication pipe detected".into(),
-                pid: None,
+                pid: server_pid,
             });
         }
 
@@ -1187,5 +1490,21 @@ mod tests {
                 || is_whitelisted_process("RustBlox.exe")
                 || is_whitelisted_process("cargo.exe")
         );
+    }
+
+    #[test]
+    fn test_matcha_and_driver_detection() {
+        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"matcha"));
+        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"matchahub"));
+        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"matchav2"));
+        assert!(CHEAT_PROCESS_KEYWORDS.contains(&"aimmy"));
+        assert!(CHEAT_WINDOW_KEYWORDS.contains(&"matcha external"));
+        assert!(CHEAT_WINDOW_KEYWORDS.contains(&"matcha v2"));
+        assert!(EXECUTOR_PIPE_PREFIXES.contains(&"matcha"));
+        assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\Matcha"));
+        assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\MatchaDriver"));
+        assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\GIO"));
+        assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\gdrv"));
+        assert!(KERNEL_CHEAT_DEVICE_PATHS.contains(&r"\\.\interception"));
     }
 }
