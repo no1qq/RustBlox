@@ -198,7 +198,131 @@ pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> Sec
     SecurityReport { threats }
 }
 
+const WHITELISTED_PROCESS_NAMES: &[&str] = &[
+    "explorer.exe",
+    "svchost.exe",
+    "csrss.exe",
+    "smss.exe",
+    "lsass.exe",
+    "services.exe",
+    "wininit.exe",
+    "winlogon.exe",
+    "dwm.exe",
+    "spoolsv.exe",
+    "sihost.exe",
+    "taskhostw.exe",
+    "ctfmon.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "conhost.exe",
+    "windowsterminal.exe",
+    "openconsole.exe",
+    "rustblox.exe",
+    "robloxplayerbeta.exe",
+    "robloxstudiobeta.exe",
+    "robloxcrashhandler.exe",
+    "searchhost.exe",
+    "startmenuexperiencehost.exe",
+    "shellexperiencehost.exe",
+    "applicationframehost.exe",
+    "systemsettings.exe",
+    "textinputhost.exe",
+    "runtimebroker.exe",
+    "searchapp.exe",
+    "securityhealthsystray.exe",
+    "securityhealthservice.exe",
+    "audiodg.exe",
+    "fontdrvhost.exe",
+    "taskmgr.exe",
+    "tasklist.exe",
+    "wmiapsrv.exe",
+    "wmiprvse.exe",
+    "dllhost.exe",
+    "smartscreen.exe",
+    "registry",
+    "system",
+    "discord.exe",
+    "discordcanary.exe",
+    "discordptb.exe",
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "operagx.exe",
+    "vivaldi.exe",
+    "code.exe",
+    "devenv.exe",
+    "git.exe",
+    "cargo.exe",
+    "rustc.exe",
+    "steam.exe",
+    "steamwebhelper.exe",
+    "epicgameslauncher.exe",
+    "spotify.exe",
+    "slack.exe",
+    "telegram.exe",
+    "notepad.exe",
+    "notepad++.exe",
+    "nvidia share.exe",
+    "nvcontainer.exe",
+    "amdrsserv.exe",
+];
+
+pub fn is_whitelisted_process(name: &str) -> bool {
+    let name_lower = name.to_ascii_lowercase();
+    let file_name = match name_lower.rfind('\\') {
+        Some(idx) => &name_lower[idx + 1..],
+        None => match name_lower.rfind('/') {
+            Some(idx) => &name_lower[idx + 1..],
+            None => &name_lower,
+        },
+    };
+    WHITELISTED_PROCESS_NAMES.contains(&file_name)
+}
+
+pub fn get_process_name_by_pid(pid: u32) -> Option<String> {
+    if pid == 0 || pid == 4 {
+        return Some("System".into());
+    }
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let snapshot = OwnedHandle(snapshot);
+
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+
+    let mut ok = unsafe { Process32FirstW(snapshot.0, &mut entry) };
+    while ok != 0 {
+        if entry.th32ProcessID == pid {
+            return Some(from_wide_nul(&entry.szExeFile));
+        }
+        ok = unsafe { Process32NextW(snapshot.0, &mut entry) };
+    }
+    None
+}
+
+pub fn is_whitelisted_pid(pid: u32) -> bool {
+    if pid == 0 || pid == 4 {
+        return true;
+    }
+    if let Some(name) = get_process_name_by_pid(pid) {
+        if is_whitelisted_process(&name) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn terminate_threat_pid(pid: u32) -> bool {
+    if pid == 0 || pid == 4 || is_whitelisted_pid(pid) {
+        return false;
+    }
     let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
     if handle.is_null() {
         return false;
@@ -224,20 +348,22 @@ fn scan_cheat_processes(threats: &mut Vec<SecurityThreat>) {
         let name = from_wide_nul(&entry.szExeFile);
         let name_lower = name.to_ascii_lowercase();
 
-        let is_cheat = CHEAT_PROCESS_KEYWORDS
-            .iter()
-            .any(|kw| name_lower.contains(kw));
+        if !is_whitelisted_process(&name) {
+            let is_cheat = CHEAT_PROCESS_KEYWORDS
+                .iter()
+                .any(|kw| name_lower.contains(kw));
 
-        if is_cheat {
-            threats.push(SecurityThreat {
-                kind: ThreatKind::KnownCheatProcess,
-                name: name.clone(),
-                detail: format!(
-                    "Active cheat or script executor process running: {name} (PID {})",
-                    entry.th32ProcessID
-                ),
-                pid: Some(entry.th32ProcessID),
-            });
+            if is_cheat {
+                threats.push(SecurityThreat {
+                    kind: ThreatKind::KnownCheatProcess,
+                    name: name.clone(),
+                    detail: format!(
+                        "Active cheat or script executor process running: {name} (PID {})",
+                        entry.th32ProcessID
+                    ),
+                    pid: Some(entry.th32ProcessID),
+                });
+            }
         }
 
         ok = unsafe { Process32NextW(snapshot.0, &mut entry) };
@@ -271,13 +397,15 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
     if matches_cheat {
         let mut pid: u32 = 0;
         GetWindowThreadProcessId(hwnd, &mut pid);
-        let ctx = &mut *(lparam as *mut WindowScanContext);
-        ctx.threats.push(SecurityThreat {
-            kind: ThreatKind::KnownCheatProcess,
-            name: title.clone(),
-            detail: format!("Cheat window '{title}' detected (PID {pid})"),
-            pid: if pid != 0 { Some(pid) } else { None },
-        });
+        if pid != 0 && !is_whitelisted_pid(pid) {
+            let ctx = &mut *(lparam as *mut WindowScanContext);
+            ctx.threats.push(SecurityThreat {
+                kind: ThreatKind::KnownCheatProcess,
+                name: title.clone(),
+                detail: format!("Cheat window '{title}' detected (PID {pid})"),
+                pid: Some(pid),
+            });
+        }
     }
 
     1
@@ -560,5 +688,42 @@ pub fn run_thewatcher_service(pid: u32, install_dir: PathBuf) {
         if hwnd != 0 as _ {
             DestroyWindow(hwnd);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_whitelisted_processes() {
+        assert!(is_whitelisted_process("explorer.exe"));
+        assert!(is_whitelisted_process("EXPLORER.EXE"));
+        assert!(is_whitelisted_process(r"C:\Windows\explorer.exe"));
+        assert!(is_whitelisted_process(r"C:\Windows\System32\svchost.exe"));
+        assert!(is_whitelisted_process("chrome.exe"));
+        assert!(is_whitelisted_process("discord.exe"));
+        assert!(is_whitelisted_process("code.exe"));
+        assert!(is_whitelisted_process("powershell.exe"));
+        assert!(is_whitelisted_process("rustblox.exe"));
+
+        assert!(!is_whitelisted_process("newuiv3.exe"));
+        assert!(!is_whitelisted_process("matrixhub.exe"));
+        assert!(!is_whitelisted_process("solara.exe"));
+        assert!(!is_whitelisted_process("wave.exe"));
+    }
+
+    #[test]
+    fn test_whitelisted_pid_protection() {
+        assert!(is_whitelisted_pid(0));
+        assert!(is_whitelisted_pid(4));
+        assert!(!terminate_threat_pid(0));
+        assert!(!terminate_threat_pid(4));
+        let my_pid = std::process::id();
+        assert!(
+            is_whitelisted_pid(my_pid)
+                || is_whitelisted_process("RustBlox.exe")
+                || is_whitelisted_process("cargo.exe")
+        );
     }
 }
