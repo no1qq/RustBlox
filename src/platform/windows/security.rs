@@ -568,6 +568,16 @@ fn scan_roblox_memory_handles(target_pid: u32, threats: &mut Vec<SecurityThreat>
                         let proc_path = get_process_image_path(holding_pid);
 
                         if !is_authorized_roblox_handle_holder(&proc_name, proc_path.as_deref()) {
+                            DuplicateHandle(
+                                holding_handle,
+                                entry.handle_value as HANDLE,
+                                0 as HANDLE,
+                                std::ptr::null_mut(),
+                                0,
+                                0,
+                                1,
+                            );
+
                             threats.push(SecurityThreat {
                                 kind: ThreatKind::KnownCheatProcess,
                                 name: proc_name.clone(),
@@ -593,19 +603,10 @@ pub fn terminate_threat_pid(pid: u32) -> bool {
     let Some(name) = get_process_name_by_pid(pid) else {
         return false;
     };
-    let name_lower = name.to_ascii_lowercase();
     let proc_path = get_process_image_path(pid);
-    let is_trusted = is_valid_whitelisted_path(&name_lower, proc_path.as_deref());
-
-    let is_explicit_cheat = CHEAT_PROCESS_KEYWORDS
-        .iter()
-        .any(|kw| name_lower.contains(kw));
-    let is_impostor = !is_trusted
-        && (name_lower == "robloxplayerbeta.exe"
-            || name_lower == "robloxstudiobeta.exe"
-            || is_system_only_name(&name_lower));
-
-    if !is_explicit_cheat && !is_impostor {
+    if is_authorized_roblox_handle_holder(&name, proc_path.as_deref())
+        && is_valid_whitelisted_path(&name, proc_path.as_deref())
+    {
         return false;
     }
     let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
