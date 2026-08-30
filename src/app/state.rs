@@ -64,6 +64,8 @@ pub struct AppState {
     pub exe_path: Option<PathBuf>,
     pub close_requested: bool,
     pub security: crate::roblox::security::SecurityWatchdog,
+    pub accounts: Vec<crate::roblox::account::AccountProfile>,
+    pub active_account_id: Option<u64>,
 
     settings_dirty_at: Option<Instant>,
     flags_dirty_at: Option<Instant>,
@@ -125,6 +127,10 @@ impl AppState {
                 }
             };
 
+        let accounts = crate::roblox::account::load_accounts(&store.paths().accounts_file())
+            .unwrap_or_default();
+        let active_account_id = accounts.first().map(|acc| acc.id);
+
         let mut app = Self {
             store,
             settings,
@@ -153,6 +159,8 @@ impl AppState {
             exe_path: std::env::current_exe().ok(),
             close_requested: false,
             security: crate::roblox::security::SecurityWatchdog::default(),
+            accounts,
+            active_account_id,
             settings_dirty_at: None,
             flags_dirty_at: None,
             game_dirty_at: None,
@@ -1373,6 +1381,90 @@ impl AppState {
                     .error("That sound could not be installed", Some(err.to_string()));
             }
         }
+    }
+
+    pub fn choose_custom_cursor(&mut self) {
+        let Some(source) = rfd::FileDialog::new()
+            .set_title("Choose a custom mouse cursor image")
+            .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        match crate::roblox::cursor::install_custom_cursor(&self.store.paths().mods_dir(), &source)
+        {
+            Ok(()) => {
+                log_info!("installed custom cursor from {}", source.display());
+                self.toasts.success("Custom cursor installed");
+                self.settings.mods.enabled = true;
+                self.settings.mods.cursor = crate::config::CursorPreset::Custom;
+                self.mark_settings_dirty();
+                self.flush_settings();
+                self.refresh_mods(true);
+                self.apply_mods_now();
+            }
+            Err(err) => {
+                log_error!("custom cursor could not be installed: {err}");
+                self.toasts
+                    .error("That cursor could not be installed", Some(err.to_string()));
+            }
+        }
+    }
+
+    pub fn add_account(&mut self, cookie: &str) {
+        match crate::roblox::account::fetch_account_details(cookie) {
+            Ok((id, username, display_name)) => {
+                let clean_cookie = crate::roblox::account::sanitize_cookie(cookie);
+                self.accounts.retain(|acc| acc.id != id);
+                let profile = crate::roblox::account::AccountProfile {
+                    id,
+                    username: username.clone(),
+                    display_name: display_name.clone(),
+                    cookie: clean_cookie.clone(),
+                    created_at: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+                };
+                self.accounts.push(profile);
+                let _ = crate::roblox::account::save_accounts(
+                    &self.store.paths().accounts_file(),
+                    &self.accounts,
+                );
+                let _ = crate::roblox::account::apply_account_session(&clean_cookie);
+                self.active_account_id = Some(id);
+                self.toasts
+                    .success(format!("Logged in as @{username} ({display_name})"));
+            }
+            Err(err) => {
+                self.toasts
+                    .error("Could not verify Roblox account", Some(err.to_string()));
+            }
+        }
+    }
+
+    pub fn switch_account(&mut self, id: u64) {
+        if let Some(acc) = self.accounts.iter().find(|acc| acc.id == id).cloned() {
+            let _ = crate::roblox::account::apply_account_session(&acc.cookie);
+            self.active_account_id = Some(id);
+            self.toasts.info(format!(
+                "Switched to @{} ({})",
+                acc.username, acc.display_name
+            ));
+        }
+    }
+
+    pub fn remove_account(&mut self, id: u64) {
+        self.accounts.retain(|acc| acc.id != id);
+        if self.active_account_id == Some(id) {
+            self.active_account_id = self.accounts.first().map(|acc| acc.id);
+            if let Some(active_id) = self.active_account_id {
+                self.switch_account(active_id);
+            }
+        }
+        let _ = crate::roblox::account::save_accounts(
+            &self.store.paths().accounts_file(),
+            &self.accounts,
+        );
+        self.toasts.info("Account removed");
     }
 
     pub fn unlock_game_settings(&mut self) {

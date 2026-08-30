@@ -93,10 +93,15 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
             state.refresh_mods(true);
             state.apply_mods_now();
         }
+        Some(Action::SetCursor(crate::config::CursorPreset::Custom)) => {
+            state.choose_custom_cursor();
+        }
         Some(Action::SetCursor(preset)) => {
             state.settings.mods.cursor = preset;
             state.mark_settings_dirty();
             state.flush_settings();
+            let _ =
+                crate::roblox::cursor::apply_cursor_preset(&state.store.paths().mods_dir(), preset);
             state.refresh_mods(true);
             state.apply_mods_now();
         }

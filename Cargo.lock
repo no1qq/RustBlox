@@ -2009,10 +2009,12 @@ name = "rustblox"
 version = "0.2.1"
 dependencies = [
  "chrono",
+ "crc32fast",
  "directories",
  "eframe",
  "egui",
  "md-5",
+ "miniz_oxide",
  "rfd",
  "serde",
  "serde_json",

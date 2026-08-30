@@ -76,4 +76,8 @@ impl Paths {
     pub fn downloads_dir(&self) -> PathBuf {
         self.data.join("Downloads")
     }
+
+    pub fn accounts_file(&self) -> PathBuf {
+        self.data.join("accounts.json")
+    }
 }

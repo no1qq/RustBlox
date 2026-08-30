@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
+pub mod account;
 pub mod activity;
+pub mod cursor;
 pub mod deploy;
 pub mod detect;
 pub mod flags;
