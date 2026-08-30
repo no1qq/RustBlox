@@ -343,17 +343,7 @@ fn manage_accounts_card(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_sta
                     }
                 }
 
-                if widgets::Button::new("Sign In via Browser")
-                    .icon(Icon::External)
-                    .tone(widgets::Tone::Neutral)
-                    .size(widgets::Size::Small)
-                    .show(ui)
-                    .clicked()
-                {
-                    state.open_url("https://www.roblox.com/login");
-                }
-
-                if widgets::Button::new("Manual Cookie")
+                if widgets::Button::new("Add Account")
                     .icon(Icon::Plus)
                     .tone(widgets::Tone::Neutral)
                     .size(widgets::Size::Small)
@@ -793,7 +783,7 @@ fn quick_sign_in_modal(
                         state.toasts.success("Copied code to clipboard");
                     }
 
-                    if widgets::Button::new("Open Page")
+                    if widgets::Button::new("Open Quick Login")
                         .icon(Icon::External)
                         .tone(widgets::Tone::Neutral)
                         .size(widgets::Size::Small)
@@ -858,9 +848,8 @@ fn quick_sign_in_modal(
                         ui_state.quick_sign_in_status = "Approved! Finalizing login...".into();
                     }
                 }
-                Ok(QuickSignInPollResult::Pending) => {
-                    ui_state.quick_sign_in_status =
-                        "Waiting for you to approve code on Roblox...".into();
+                Ok(QuickSignInPollResult::Pending(msg)) => {
+                    ui_state.quick_sign_in_status = msg;
                 }
                 Ok(QuickSignInPollResult::Denied) => {
                     ui_state.quick_sign_in_status = "Login was denied on the device.".into();
@@ -912,16 +901,44 @@ fn manual_account_modal(
             ui.set_width(460.0);
 
             ui.label(
-                RichText::new("Add Roblox Account (Manual)")
+                RichText::new("Add Roblox Account")
                     .font(theme::strong(theme::size::TITLE))
                     .color(palette.text),
             );
             ui.add_space(theme.metrics.gap_xs);
             ui.label(
-                RichText::new("Paste your .ROBLOSECURITY cookie to save this account.")
-                    .font(theme::text_style(theme::size::SMALL))
-                    .color(palette.text_muted),
+                RichText::new(
+                    "Paste your .ROBLOSECURITY session cookie or open Roblox in your browser.",
+                )
+                .font(theme::text_style(theme::size::SMALL))
+                .color(palette.text_muted),
             );
+
+            ui.add_space(theme.metrics.gap_md);
+            ui.horizontal(|ui| {
+                if widgets::Button::new("Open Roblox in Browser")
+                    .icon(Icon::External)
+                    .tone(widgets::Tone::Neutral)
+                    .size(widgets::Size::Small)
+                    .show(ui)
+                    .clicked()
+                {
+                    state.open_url("https://www.roblox.com/login");
+                }
+
+                if widgets::Button::new("Paste from Clipboard")
+                    .icon(Icon::Check)
+                    .tone(widgets::Tone::Neutral)
+                    .size(widgets::Size::Small)
+                    .show(ui)
+                    .clicked()
+                {
+                    if let Some(clip) = crate::platform::get_clipboard_text() {
+                        ui_state.account_cookie_input = clip;
+                        state.toasts.success("Pasted from clipboard");
+                    }
+                }
+            });
 
             ui.add_space(theme.metrics.gap_md);
             ui.label(

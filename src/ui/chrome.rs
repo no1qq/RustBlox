@@ -310,20 +310,9 @@ pub fn sidebar(
 
     let bottom_count = pages.iter().filter(|p| is_bottom_page(p)).count();
     let item_h = theme.metrics.row_h + 2.0;
-    let bottom_items_h = bottom_count as f32 * item_h + theme.metrics.gap_md * 2.0 + 4.0;
+    let bottom_items_h = bottom_count as f32 * item_h + theme.metrics.gap_sm + 4.0;
     let spacer = (ui.available_height() - bottom_items_h).max(theme.metrics.gap_sm);
     ui.add_space(spacer);
-
-    if expansion > 0.3 {
-        let line_y = ui.cursor().top();
-        let stroke = egui::Stroke::new(1.0, theme.palette.border.gamma_multiply(0.6));
-        ui.painter().hline(
-            ui.cursor().left()..=(ui.cursor().left() + ui.available_width()),
-            line_y,
-            stroke,
-        );
-    }
-    ui.add_space(theme.metrics.gap_sm);
 
     for page in pages.iter().filter(|p| is_bottom_page(p)) {
         let badge = match page {

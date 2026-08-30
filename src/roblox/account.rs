@@ -19,6 +19,15 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
+fn raw_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(TIMEOUT))
+        .user_agent(concat!("RustBlox/", env!("CARGO_PKG_VERSION")))
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountProfile {
     pub id: u64,
@@ -37,7 +46,7 @@ pub struct QuickSignInSession {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QuickSignInPollResult {
-    Pending,
+    Pending(String),
     Approved(String),
     Denied,
     Expired,
@@ -70,7 +79,11 @@ pub fn sanitize_cookie(raw: &str) -> String {
         .unwrap_or(trimmed)
         .trim_matches('"')
         .trim();
-    cleaned.to_string()
+    if let Some(first_part) = cleaned.split(';').next() {
+        first_part.trim().to_string()
+    } else {
+        cleaned.to_string()
+    }
 }
 
 pub fn fetch_account_details(cookie: &str) -> Result<(u64, String, String)> {
@@ -116,25 +129,18 @@ pub fn fetch_account_details(cookie: &str) -> Result<(u64, String, String)> {
 }
 
 pub fn start_quick_sign_in() -> Result<QuickSignInSession> {
-    let payload = serde_json::json!({
-        "deviceType": "Computer",
-        "deviceMetadata": "RustBlox"
-    });
-    let payload_str = payload.to_string();
-
-    let mut response = agent()
-        .post("https://auth.roblox.com/v1/cross-device/start")
+    let mut response = raw_agent()
+        .post("https://apis.roblox.com/auth-token-service/v1/login/create")
         .header("Content-Type", "application/json")
-        .send(payload_str.as_bytes())
+        .send(b"{}")
         .map_err(|err| Error::invalid(format!("Could not initiate Quick Sign-In: {err}")))?;
 
     let mut body = String::new();
-    response
+    let _ = response
         .body_mut()
         .as_reader()
         .take(LIMIT as u64)
-        .read_to_string(&mut body)
-        .map_err(|err| Error::io("Could not read Quick Sign-In response", err))?;
+        .read_to_string(&mut body);
 
     let value: Value = serde_json::from_str(&body)
         .map_err(|err| Error::invalid(format!("Invalid response format: {err}")))?;
@@ -159,47 +165,122 @@ pub fn start_quick_sign_in() -> Result<QuickSignInSession> {
 
 pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPollResult> {
     let payload = serde_json::json!({
-        "privateKey": session.private_key
+        "code": session.code,
+        "key": session.private_key
     });
     let payload_str = payload.to_string();
 
-    let mut response = match agent()
-        .post("https://auth.roblox.com/v1/cross-device/poll")
+    let mut res = raw_agent()
+        .post("https://apis.roblox.com/auth-token-service/v1/login/status")
         .header("Content-Type", "application/json")
         .send(payload_str.as_bytes())
-    {
-        Ok(res) => res,
-        Err(err) => return Ok(QuickSignInPollResult::Error(err.to_string())),
-    };
+        .map_err(|err| Error::invalid(format!("Could not check status: {err}")))?;
+
+    if res.status().as_u16() == 403 {
+        if let Some(csrf) = res
+            .headers()
+            .get("x-csrf-token")
+            .and_then(|v| v.to_str().ok())
+        {
+            res = raw_agent()
+                .post("https://apis.roblox.com/auth-token-service/v1/login/status")
+                .header("Content-Type", "application/json")
+                .header("x-csrf-token", csrf)
+                .send(payload_str.as_bytes())
+                .map_err(|err| Error::invalid(format!("Could not check status: {err}")))?;
+        }
+    }
 
     let mut body = String::new();
-    let _ = response
+    let _ = res
         .body_mut()
         .as_reader()
         .take(LIMIT as u64)
         .read_to_string(&mut body);
 
     let Ok(value) = serde_json::from_str::<Value>(&body) else {
-        return Ok(QuickSignInPollResult::Pending);
+        return Ok(QuickSignInPollResult::Pending(
+            "Waiting for confirmation on Roblox...".into(),
+        ));
     };
 
     let status = value
         .get("status")
         .and_then(Value::as_str)
-        .unwrap_or("Pending");
+        .unwrap_or("Created");
     match status {
-        "Approved" => {
-            if let Some(cookie) = value.get("cookie").and_then(Value::as_str) {
-                Ok(QuickSignInPollResult::Approved(sanitize_cookie(cookie)))
-            } else if let Some(cookie) = value.get("token").and_then(Value::as_str) {
-                Ok(QuickSignInPollResult::Approved(sanitize_cookie(cookie)))
-            } else {
-                Ok(QuickSignInPollResult::Approved(String::new()))
-            }
-        }
-        "Denied" => Ok(QuickSignInPollResult::Denied),
+        "Created" => Ok(QuickSignInPollResult::Pending(
+            "Ready - Enter code on roblox.com/crossdevice".into(),
+        )),
+        "UserLinked" => Ok(QuickSignInPollResult::Pending(
+            "User linked! Approving login on device...".into(),
+        )),
+        "Cancelled" | "Invalid" => Ok(QuickSignInPollResult::Denied),
         "Expired" => Ok(QuickSignInPollResult::Expired),
-        _ => Ok(QuickSignInPollResult::Pending),
+        "Validated" => {
+            let login_payload = serde_json::json!({
+                "cvalue": session.code,
+                "password": session.private_key
+            });
+            let login_str = login_payload.to_string();
+
+            let mut login_res = raw_agent()
+                .post("https://auth.roblox.com/v2/login")
+                .header("Content-Type", "application/json")
+                .send(login_str.as_bytes())
+                .map_err(|err| Error::invalid(format!("Could not complete login: {err}")))?;
+
+            if login_res.status().as_u16() == 403 {
+                if let Some(csrf) = login_res
+                    .headers()
+                    .get("x-csrf-token")
+                    .and_then(|v| v.to_str().ok())
+                {
+                    login_res = raw_agent()
+                        .post("https://auth.roblox.com/v2/login")
+                        .header("Content-Type", "application/json")
+                        .header("x-csrf-token", csrf)
+                        .send(login_str.as_bytes())
+                        .map_err(|err| {
+                            Error::invalid(format!("Could not complete login: {err}"))
+                        })?;
+                }
+            }
+
+            for (name, val) in login_res.headers() {
+                if name.as_str().eq_ignore_ascii_case("set-cookie") {
+                    if let Ok(cookie_str) = val.to_str() {
+                        if cookie_str.contains(".ROBLOSECURITY") {
+                            return Ok(QuickSignInPollResult::Approved(sanitize_cookie(
+                                cookie_str,
+                            )));
+                        }
+                    }
+                }
+            }
+
+            let mut login_body = String::new();
+            let _ = login_res
+                .body_mut()
+                .as_reader()
+                .take(LIMIT as u64)
+                .read_to_string(&mut login_body);
+
+            if let Ok(login_val) = serde_json::from_str::<Value>(&login_body) {
+                if let Some(tok) = login_val
+                    .get("token")
+                    .or_else(|| login_val.get("cookie"))
+                    .and_then(Value::as_str)
+                {
+                    return Ok(QuickSignInPollResult::Approved(sanitize_cookie(tok)));
+                }
+            }
+
+            Ok(QuickSignInPollResult::Error(
+                "Validated, but session cookie could not be extracted".into(),
+            ))
+        }
+        other => Ok(QuickSignInPollResult::Pending(format!("Status: {other}"))),
     }
 }
 
@@ -443,6 +524,10 @@ mod tests {
             "_|WARNING:-DO-NOT-SHARE-THIS..."
         );
         assert_eq!(sanitize_cookie(r#"".ROBLOSECURITY=abc""#), "abc");
+        assert_eq!(
+            sanitize_cookie(".ROBLOSECURITY=abc; path=/; domain=.roblox.com"),
+            "abc"
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ mod windows;
 #[allow(unused_imports)]
 pub use windows::{
     attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
-    find_processes, free_space, hide_tray_icon, open_path, open_url, protocol,
+    find_processes, free_space, get_clipboard_text, hide_tray_icon, open_path, open_url, protocol,
     run_thewatcher_service, scan_security, shortcut, spawn_detached, spawn_elevated,
     system_dark_mode, terminate_threat_pid,
 };
@@ -18,7 +18,7 @@ pub use windows::{
 #[allow(unused_imports)]
 pub use fallback::{
     attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
-    find_processes, free_space, hide_tray_icon, open_path, open_url, protocol,
+    find_processes, free_space, get_clipboard_text, hide_tray_icon, open_path, open_url, protocol,
     run_thewatcher_service, scan_security, shortcut, spawn_detached, spawn_elevated,
     system_dark_mode, terminate_threat_pid,
 };
