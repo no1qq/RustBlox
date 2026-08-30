@@ -718,7 +718,7 @@ fn quick_sign_in_modal(
             ui.add_space(theme.metrics.gap_sm);
 
             ui.label(
-                RichText::new("Copy this code and enter it on the Roblox Quick Sign-In page:")
+                RichText::new("Enter this code in the Roblox App (More > Quick Log In) or in Roblox Account Settings:")
                     .font(theme::text_style(theme::size::BODY))
                     .color(palette.text_muted),
             );
@@ -783,14 +783,14 @@ fn quick_sign_in_modal(
                         state.toasts.success("Copied code to clipboard");
                     }
 
-                    if widgets::Button::new("Open Quick Login")
+                    if widgets::Button::new("Open Roblox Settings")
                         .icon(Icon::External)
                         .tone(widgets::Tone::Neutral)
                         .size(widgets::Size::Small)
                         .show(ui)
                         .clicked()
                     {
-                        state.open_url("https://www.roblox.com/crossdevice");
+                        state.open_url("https://www.roblox.com/my/account#!/security");
                     }
 
                     if widgets::Button::new("Check Status")
