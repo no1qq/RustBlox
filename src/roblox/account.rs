@@ -166,13 +166,15 @@ pub fn start_quick_sign_in() -> Result<QuickSignInSession> {
 pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPollResult> {
     let payload = serde_json::json!({
         "code": session.code,
-        "key": session.private_key
+        "privateKey": session.private_key
     });
     let payload_str = payload.to_string();
 
     let mut res = raw_agent()
         .post("https://apis.roblox.com/auth-token-service/v1/login/status")
         .header("Content-Type", "application/json")
+        .header("Origin", "https://www.roblox.com")
+        .header("Referer", "https://www.roblox.com/")
         .send(payload_str.as_bytes())
         .map_err(|err| Error::invalid(format!("Could not check status: {err}")))?;
 
@@ -185,6 +187,8 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
             res = raw_agent()
                 .post("https://apis.roblox.com/auth-token-service/v1/login/status")
                 .header("Content-Type", "application/json")
+                .header("Origin", "https://www.roblox.com")
+                .header("Referer", "https://www.roblox.com/")
                 .header("x-csrf-token", csrf)
                 .send(payload_str.as_bytes())
                 .map_err(|err| Error::invalid(format!("Could not check status: {err}")))?;
@@ -227,6 +231,8 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
             let mut login_res = raw_agent()
                 .post("https://auth.roblox.com/v2/login")
                 .header("Content-Type", "application/json")
+                .header("Origin", "https://www.roblox.com")
+                .header("Referer", "https://www.roblox.com/")
                 .send(login_str.as_bytes())
                 .map_err(|err| Error::invalid(format!("Could not complete login: {err}")))?;
 
@@ -239,6 +245,8 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
                     login_res = raw_agent()
                         .post("https://auth.roblox.com/v2/login")
                         .header("Content-Type", "application/json")
+                        .header("Origin", "https://www.roblox.com")
+                        .header("Referer", "https://www.roblox.com/")
                         .header("x-csrf-token", csrf)
                         .send(login_str.as_bytes())
                         .map_err(|err| {

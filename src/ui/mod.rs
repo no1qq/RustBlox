@@ -240,6 +240,7 @@ pub struct UiState {
     pub show_quick_sign_in_dialog: bool,
     pub quick_sign_in_session: Option<crate::roblox::account::QuickSignInSession>,
     pub quick_sign_in_status: String,
+    pub quick_sign_in_last_poll: Option<std::time::Instant>,
     pub account_error: Option<String>,
     pub friends_cache: Vec<crate::roblox::account::FriendInfo>,
     pub friends_loaded_for: Option<u64>,

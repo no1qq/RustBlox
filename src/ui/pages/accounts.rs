@@ -685,6 +685,19 @@ fn quick_sign_in_modal(
     let mut close = false;
     let mut poll_check = false;
 
+    let now = std::time::Instant::now();
+    if ui_state.quick_sign_in_session.is_some() {
+        let should_poll = match ui_state.quick_sign_in_last_poll {
+            Some(last) => now.duration_since(last) >= std::time::Duration::from_millis(1500),
+            None => true,
+        };
+        if should_poll {
+            ui_state.quick_sign_in_last_poll = Some(now);
+            poll_check = true;
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(1500));
+    }
+
     let response = egui::Modal::new(egui::Id::new("quick-sign-in-modal"))
         .backdrop_color(palette.scrim)
         .frame(
@@ -871,6 +884,7 @@ fn quick_sign_in_modal(
     if response.should_close() || close {
         ui_state.show_quick_sign_in_dialog = false;
         ui_state.quick_sign_in_session = None;
+        ui_state.quick_sign_in_last_poll = None;
     }
 }
 
