@@ -1,4 +1,7 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+static NEXT_TOAST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToastKind {
@@ -10,6 +13,7 @@ pub enum ToastKind {
 
 #[derive(Clone, Debug)]
 pub struct Toast {
+    pub id: u64,
     pub kind: ToastKind,
     pub title: String,
     pub body: Option<String>,
@@ -48,6 +52,7 @@ impl Toasts {
         };
 
         self.items.push(Toast {
+            id: NEXT_TOAST_ID.fetch_add(1, Ordering::Relaxed),
             kind,
             title: title.into(),
             body,
@@ -80,10 +85,8 @@ impl Toasts {
         self.items.retain(|toast| !toast.expired());
     }
 
-    pub fn dismiss(&mut self, index: usize) {
-        if index < self.items.len() {
-            self.items.remove(index);
-        }
+    pub fn dismiss(&mut self, id: u64) {
+        self.items.retain(|toast| toast.id != id);
     }
 
     pub fn items(&self) -> &[Toast] {

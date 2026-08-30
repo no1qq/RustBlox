@@ -34,6 +34,19 @@ impl Details {
         if let Some(started) = self.started_at {
             activity["timestamps"] = json!({ "start": started });
         }
+        if !self.line.trim().is_empty() || !self.note.trim().is_empty() || self.started_at.is_some()
+        {
+            activity["assets"] = json!({
+                "large_image": "rustblox",
+                "large_text": "RustBlox",
+            });
+            activity["buttons"] = json!([
+                {
+                    "label": "GitHub",
+                    "url": "https://github.com/no1qq/RustBlox",
+                }
+            ]);
+        }
         activity
     }
 }
@@ -258,6 +271,13 @@ mod tests {
         assert_eq!(activity["details"], json!("Playing something"));
         assert!(activity.get("state").is_none());
         assert_eq!(activity["timestamps"]["start"], json!(1787317890));
+        assert_eq!(activity["assets"]["large_image"], json!("rustblox"));
+        assert_eq!(activity["assets"]["large_text"], json!("RustBlox"));
+        assert_eq!(activity["buttons"][0]["label"], json!("GitHub"));
+        assert_eq!(
+            activity["buttons"][0]["url"],
+            json!("https://github.com/no1qq/RustBlox")
+        );
     }
 
     #[test]

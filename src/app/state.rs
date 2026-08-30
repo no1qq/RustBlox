@@ -172,6 +172,7 @@ impl AppState {
         if let Some(exe) = app.exe_path.clone() {
             crate::selfupdate::clear_retired(&exe);
         }
+        app.refresh_shortcuts(true);
         app
     }
 
@@ -1104,13 +1105,12 @@ impl AppState {
             return;
         }
         self.shortcuts_checked_at = Some(Instant::now());
-        if self.settings.shortcuts.start_menu && !shortcuts::Kind::StartMenu.exists() {
-            if let Some(exe) = self.exe_path.clone() {
+        if let Some(exe) = self.exe_path.clone() {
+            if self.settings.shortcuts.start_menu && (force || !shortcuts::Kind::StartMenu.exists())
+            {
                 let _ = shortcuts::create(shortcuts::Kind::StartMenu, &exe);
             }
-        }
-        if self.settings.shortcuts.desktop && !shortcuts::Kind::Desktop.exists() {
-            if let Some(exe) = self.exe_path.clone() {
+            if self.settings.shortcuts.desktop && (force || !shortcuts::Kind::Desktop.exists()) {
                 let _ = shortcuts::create(shortcuts::Kind::Desktop, &exe);
             }
         }

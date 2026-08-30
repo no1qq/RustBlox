@@ -189,12 +189,21 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
         }
         Icon::Refresh => {
             let center = grid.at(12.0, 12.0);
-            let radius = grid.len(8.0);
-            painter.add(Shape::line(arc(center, radius, -0.5, 4.8, 28), stroke));
+            let radius = grid.len(9.0);
+            painter.add(Shape::line(
+                arc(center, radius, std::f32::consts::PI, -0.45, 20),
+                stroke,
+            ));
             path(vec![
-                grid.at(16.0, 3.0),
                 grid.at(21.0, 3.0),
                 grid.at(21.0, 8.0),
+                grid.at(16.0, 8.0),
+            ]);
+            painter.add(Shape::line(arc(center, radius, 0.0, 2.69, 20), stroke));
+            path(vec![
+                grid.at(3.0, 21.0),
+                grid.at(3.0, 16.0),
+                grid.at(8.0, 16.0),
             ]);
         }
         Icon::Warning => {
