@@ -14,7 +14,7 @@ pub fn render(ui: &mut Ui, state: &mut AppState, ui_state: &mut UiState) {
     widgets::page_header(
         ui,
         "Account Manager",
-        "Manage multiple Roblox accounts, switch profiles, and inspect friends and games.",
+        "Manage multiple Roblox accounts, switch profiles, and join friends in-game.",
         |ui| {
             subtab_selector(ui, &theme, ui_state);
         },
@@ -25,7 +25,6 @@ pub fn render(ui: &mut Ui, state: &mut AppState, ui_state: &mut UiState) {
     match ui_state.accounts_tab {
         AccountsTab::Accounts => render_accounts_tab(ui, &theme, state, ui_state),
         AccountsTab::Friends => render_friends_tab(ui, &theme, state, ui_state),
-        AccountsTab::Games => render_games_tab(ui, &theme, state, ui_state),
     }
 
     quick_sign_in_modal(ui.ctx(), &theme, state, ui_state);
@@ -449,17 +448,57 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                 for friend in &ui_state.friends_cache {
                     widgets::nested(ui, |ui| {
                         ui.horizontal(|ui| {
-                            let (status_rect, _) =
-                                ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
-                            let status_color = match friend.presence_type {
-                                2 => theme.palette.accent,
-                                1 => theme.palette.info,
-                                _ => theme.palette.text_muted.gamma_multiply(0.4),
+                            let avatar_size = Vec2::splat(38.0);
+                            let (avatar_rect, _) =
+                                ui.allocate_exact_size(avatar_size, egui::Sense::hover());
+
+                            let is_ingame = friend.presence_type == 2;
+                            let is_online = friend.presence_type > 0;
+
+                            let bg_color = if is_ingame {
+                                theme.palette.accent.gamma_multiply(0.18)
+                            } else if is_online {
+                                theme.palette.info.gamma_multiply(0.18)
+                            } else {
+                                theme.palette.surface_hover
                             };
                             ui.painter()
-                                .circle_filled(status_rect.center(), 5.0, status_color);
+                                .circle_filled(avatar_rect.center(), 19.0, bg_color);
+                            ui.painter().circle_stroke(
+                                avatar_rect.center(),
+                                19.0,
+                                egui::Stroke::new(1.0, theme.palette.border),
+                            );
 
-                            ui.add_space(theme.metrics.gap_xs);
+                            let icon_color = if is_ingame {
+                                theme.palette.accent
+                            } else if is_online {
+                                theme.palette.info
+                            } else {
+                                theme.palette.text_muted
+                            };
+                            crate::ui::icons::draw(
+                                ui.painter(),
+                                Icon::User,
+                                avatar_rect.shrink(9.0),
+                                icon_color,
+                                1.6,
+                            );
+
+                            let status_dot_pos = avatar_rect.right_bottom() + Vec2::new(-4.0, -4.0);
+                            let status_color = if is_ingame {
+                                egui::Color32::from_rgb(34, 197, 94)
+                            } else if is_online {
+                                theme.palette.info
+                            } else {
+                                theme.palette.text_muted.gamma_multiply(0.4)
+                            };
+                            ui.painter()
+                                .circle_filled(status_dot_pos, 5.0, theme.palette.surface);
+                            ui.painter()
+                                .circle_filled(status_dot_pos, 4.0, status_color);
+
+                            ui.add_space(theme.metrics.gap_sm);
 
                             ui.vertical(|ui| {
                                 ui.horizontal(|ui| {
@@ -468,11 +507,13 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                                             .font(theme::strong(theme::size::BODY))
                                             .color(theme.palette.text),
                                     );
-                                    ui.label(
-                                        RichText::new(format!("@{}", friend.username))
-                                            .font(theme::text_style(theme::size::SMALL))
-                                            .color(theme.palette.text_muted),
-                                    );
+                                    if !friend.username.is_empty() {
+                                        ui.label(
+                                            RichText::new(format!("@{}", friend.username))
+                                                .font(theme::text_style(theme::size::SMALL))
+                                                .color(theme.palette.text_muted),
+                                        );
+                                    }
                                 });
 
                                 let status_text = match friend.presence_type {
@@ -483,15 +524,17 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                                             "In Game".to_string()
                                         }
                                     }
-                                    1 => "Online (Website / App)".to_string(),
+                                    1 => "Online".to_string(),
                                     3 => "In Roblox Studio".to_string(),
                                     _ => "Offline".to_string(),
                                 };
                                 ui.label(
                                     RichText::new(status_text)
                                         .font(theme::text_style(theme::size::SMALL))
-                                        .color(if friend.presence_type == 2 {
+                                        .color(if is_ingame {
                                             theme.palette.accent
+                                        } else if is_online {
+                                            theme.palette.info
                                         } else {
                                             theme.palette.text_muted
                                         }),
@@ -514,154 +557,6 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                                     }
                                 });
                             }
-                        });
-                    });
-                    ui.add_space(theme.metrics.gap_xs);
-                }
-            }
-        },
-    );
-}
-
-fn render_games_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
-    let active_account = state
-        .active_account_id
-        .and_then(|id| state.accounts.iter().find(|acc| acc.id == id));
-
-    let Some(active) = active_account else {
-        widgets::section(
-            ui,
-            "Games",
-            Some("View games created or favorited by the active account."),
-            |ui| {
-                widgets::nested(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(theme.metrics.gap_lg);
-                        ui.label(
-                            RichText::new("No active Roblox account selected")
-                                .font(theme::strong(theme::size::BODY))
-                                .color(theme.palette.text),
-                        );
-                        ui.label(
-                            RichText::new(
-                                "Please add and activate an account in the Accounts tab.",
-                            )
-                            .font(theme::text_style(theme::size::SMALL))
-                            .color(theme.palette.text_muted),
-                        );
-                        ui.add_space(theme.metrics.gap_lg);
-                    });
-                });
-            },
-        );
-        return;
-    };
-
-    let user_id = active.id;
-    let cookie = active.cookie.clone();
-
-    if ui_state.games_loaded_for != Some(user_id) && !ui_state.games_loading {
-        ui_state.games_loading = true;
-        match account::fetch_user_games(user_id, &cookie) {
-            Ok(games) => {
-                ui_state.games_cache = games;
-                ui_state.games_loaded_for = Some(user_id);
-            }
-            Err(err) => {
-                state
-                    .toasts
-                    .error("Could not load games", Some(err.to_string()));
-                ui_state.games_loaded_for = Some(user_id);
-            }
-        }
-        ui_state.games_loading = false;
-    }
-
-    widgets::section(
-        ui,
-        &format!("Games for @{}", active.username),
-        Some("Launch your games and places directly with RustBlox presets and FastFlags."),
-        |ui| {
-            ui.horizontal(|ui| {
-                if widgets::Button::new("Refresh Games")
-                    .icon(Icon::Refresh)
-                    .tone(widgets::Tone::Neutral)
-                    .size(widgets::Size::Small)
-                    .show(ui)
-                    .clicked()
-                {
-                    ui_state.games_loaded_for = None;
-                }
-                ui.label(
-                    RichText::new(format!("{} games found", ui_state.games_cache.len()))
-                        .font(theme::text_style(theme::size::SMALL))
-                        .color(theme.palette.text_muted),
-                );
-            });
-
-            ui.add_space(theme.metrics.gap_md);
-
-            if ui_state.games_cache.is_empty() {
-                widgets::nested(ui, |ui| {
-                    ui.label(
-                        RichText::new("No games found for this user account.")
-                            .font(theme::text_style(theme::size::SMALL))
-                            .color(theme.palette.text_muted),
-                    );
-                });
-            } else {
-                for game in &ui_state.games_cache {
-                    widgets::nested(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let (icon_rect, _) =
-                                ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::hover());
-                            ui.painter().rect_filled(
-                                icon_rect,
-                                theme.radius_sm(),
-                                theme.palette.surface_hover,
-                            );
-                            crate::ui::icons::draw(
-                                ui.painter(),
-                                Icon::Gamepad,
-                                icon_rect.shrink(8.0),
-                                theme.palette.accent,
-                                1.6,
-                            );
-
-                            ui.add_space(theme.metrics.gap_xs);
-
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    RichText::new(&game.name)
-                                        .font(theme::strong(theme::size::BODY))
-                                        .color(theme.palette.text),
-                                );
-                                ui.label(
-                                    RichText::new(format!(
-                                        "Creator: {} • Place ID: {}",
-                                        game.creator_name, game.place_id
-                                    ))
-                                    .font(theme::text_style(theme::size::SMALL))
-                                    .color(theme.palette.text_muted),
-                                );
-                            });
-
-                            let place_id = game.place_id;
-                            let game_name = game.name.clone();
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if widgets::Button::new("Play")
-                                    .icon(Icon::Play)
-                                    .tone(widgets::Tone::Primary)
-                                    .size(widgets::Size::Small)
-                                    .show(ui)
-                                    .clicked()
-                                {
-                                    state.start_launch_flow(LaunchTarget::Place {
-                                        place_id,
-                                        label: Some(game_name),
-                                    });
-                                }
-                            });
                         });
                     });
                     ui.add_space(theme.metrics.gap_xs);

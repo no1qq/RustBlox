@@ -98,21 +98,15 @@ pub enum AccountsTab {
     #[default]
     Accounts,
     Friends,
-    Games,
 }
 
 impl AccountsTab {
-    pub const ALL: [AccountsTab; 3] = [
-        AccountsTab::Accounts,
-        AccountsTab::Friends,
-        AccountsTab::Games,
-    ];
+    pub const ALL: [AccountsTab; 2] = [AccountsTab::Accounts, AccountsTab::Friends];
 
     pub fn label(self) -> &'static str {
         match self {
             AccountsTab::Accounts => "Accounts",
             AccountsTab::Friends => "Friends",
-            AccountsTab::Games => "Games",
         }
     }
 
@@ -120,7 +114,6 @@ impl AccountsTab {
         match self {
             AccountsTab::Accounts => icons::Icon::User,
             AccountsTab::Friends => icons::Icon::Users,
-            AccountsTab::Games => icons::Icon::Gamepad,
         }
     }
 }
@@ -244,10 +237,7 @@ pub struct UiState {
     pub account_error: Option<String>,
     pub friends_cache: Vec<crate::roblox::account::FriendInfo>,
     pub friends_loaded_for: Option<u64>,
-    pub games_cache: Vec<crate::roblox::account::UserGameInfo>,
-    pub games_loaded_for: Option<u64>,
     pub friends_loading: bool,
-    pub games_loading: bool,
     pub confirm: Option<LaunchTarget>,
     pub extra_args_buffer: Option<String>,
     pub channel_buffer: Option<String>,

@@ -1,6 +1,7 @@
 use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Icon {
     Home,
     Rocket,

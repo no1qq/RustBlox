@@ -6,19 +6,20 @@
 a lightweight, fast Roblox launcher and bootstrapper for Windows, written in Rust.
 
   <p>
-    <a href="https://github.com/no1qq/RustBlox/releases"><img src="https://img.shields.io/badge/release-v0.2.1-ff5c00?style=flat-square&logo=github&logoColor=white" alt="Release" /></a>
+    <a href="https://github.com/no1qq/RustBlox/releases"><img src="https://img.shields.io/badge/release-v0.3.0-ff5c00?style=flat-square&logo=github&logoColor=white" alt="Release" /></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.85+-dea584?style=flat-square&logo=rust&logoColor=white" alt="Rust" /></a>
     <a href="https://github.com/no1qq/RustBlox/releases"><img src="https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square&logo=windows&logoColor=white" alt="Platform" /></a>
     <a href="https://github.com/no1qq/RustBlox"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" alt="License" /></a>
   </p>
 </div>
 
-RustBlox downloads its own isolated copy of Roblox so your main installation is never touched, lets you manage FastFlags and game settings, applies custom fonts and mods cleanly, and runs a lightweight security watchdog while you play.
+RustBlox downloads its own isolated copy of Roblox so your main installation is never touched, lets you manage FastFlags and game settings, applies custom fonts and mods cleanly, manages multiple Roblox accounts with 1-click switching, and runs a lightweight security watchdog while you play.
 
 ## features
 
 - clean Roblox installation: downloads directly from the official Roblox CDN into an isolated data folder so it never conflicts with other copies on your machine.
-- FastFlag manager: built-in editor for `ClientAppSettings.json` with typed values, import/export support, and instant apply without manual JSON editing.
+- Roblox Account Manager & Switcher: store multiple accounts with 1-click switching, Quick Sign-In code authentication, real-time in-game friends list, and direct 1-click game joining.
+- FastFlag manager: built-in editor for `ClientAppSettings.json` with typed values, import/export support, refused flag cleaner, and instant apply without manual JSON editing.
 - in-game settings control: tweak your FPS cap, graphics quality, mouse sensitivity, and motion settings directly from the launcher. (note: this modifies `%LOCALAPPDATA%\Roblox\GlobalBasicSettings_<n>.xml`, the shared Roblox settings file. it is turned off by default and automatically creates a backup before making any changes.)
 - custom mods and fonts: drop in custom fonts or textures with one click; original files are backed up automatically and restored cleanly when mods are disabled.
 - TheWatcher security watchdog: background scanner with a system tray icon that runs while Roblox is active to detect external memory reading handles, unbacked executable memory regions, transparent click-through overlays, and executor named pipes.

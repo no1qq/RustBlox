@@ -64,14 +64,6 @@ pub struct FriendInfo {
     pub place_id: Option<u64>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct UserGameInfo {
-    pub id: u64,
-    pub name: String,
-    pub place_id: u64,
-    pub creator_name: String,
-}
-
 pub fn sanitize_cookie(raw: &str) -> String {
     let trimmed = raw.trim().trim_matches('"').trim();
     let cleaned = trimmed
@@ -328,46 +320,85 @@ pub fn fetch_friends(user_id: u64, cookie: &str) -> Result<Vec<FriendInfo>> {
     let value: Value = serde_json::from_str(&body)
         .map_err(|err| Error::invalid(format!("Invalid friends payload: {err}")))?;
 
-    let mut friends = Vec::new();
-    let Some(data) = value.get("data").and_then(Value::as_array) else {
-        return Ok(friends);
-    };
-
     let mut ids = Vec::new();
-    for item in data {
-        let Some(id) = item.get("id").and_then(Value::as_u64) else {
-            continue;
-        };
-        let username = item
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or("Friend")
-            .to_string();
-        let display_name = item
-            .get("displayName")
-            .and_then(Value::as_str)
-            .unwrap_or(&username)
-            .to_string();
-        let is_online = item
-            .get("isOnline")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-
-        ids.push(id);
-        friends.push(FriendInfo {
-            id,
-            username,
-            display_name,
-            is_online,
-            presence_type: if is_online { 1 } else { 0 },
-            last_location: None,
-            place_id: None,
-        });
+    if let Some(data) = value.get("data").and_then(Value::as_array) {
+        for item in data {
+            if let Some(id) = item.get("id").and_then(Value::as_u64) {
+                if id > 0 {
+                    ids.push(id);
+                }
+            }
+        }
     }
 
-    if !ids.is_empty() {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut friends: Vec<FriendInfo> = ids
+        .iter()
+        .map(|&id| FriendInfo {
+            id,
+            username: String::new(),
+            display_name: String::new(),
+            is_online: false,
+            presence_type: 0,
+            last_location: None,
+            place_id: None,
+        })
+        .collect();
+
+    for chunk in ids.chunks(50) {
+        let payload = serde_json::json!({
+            "userIds": chunk,
+            "excludeBannedUsers": false
+        });
+        let mut user_req = agent().post("https://users.roblox.com/v1/users");
+        if !clean.is_empty() {
+            user_req = user_req.header("Cookie", &cookie_header);
+        }
+        if let Ok(mut res) = user_req
+            .header("Content-Type", "application/json")
+            .send(payload.to_string().as_bytes())
+        {
+            let mut body = String::new();
+            if res
+                .body_mut()
+                .as_reader()
+                .take(LIMIT as u64)
+                .read_to_string(&mut body)
+                .is_ok()
+            {
+                if let Ok(val) = serde_json::from_str::<Value>(&body) {
+                    if let Some(arr) = val.get("data").and_then(Value::as_array) {
+                        for item in arr {
+                            let Some(id) = item.get("id").and_then(Value::as_u64) else {
+                                continue;
+                            };
+                            let name = item
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            let display = item
+                                .get("displayName")
+                                .and_then(Value::as_str)
+                                .unwrap_or(&name)
+                                .to_string();
+                            if let Some(f) = friends.iter_mut().find(|f| f.id == id) {
+                                f.username = name;
+                                f.display_name = display;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for chunk in ids.chunks(25) {
         let presence_payload = serde_json::json!({
-            "userIds": ids.iter().take(100).copied().collect::<Vec<_>>()
+            "userIds": chunk
         });
         let mut pres_req = agent().post("https://presence.roblox.com/v1/presence/users");
         if !clean.is_empty() {
@@ -416,73 +447,15 @@ pub fn fetch_friends(user_id: u64, cookie: &str) -> Result<Vec<FriendInfo>> {
         }
     }
 
-    friends.sort_by_key(|b| std::cmp::Reverse(b.presence_type));
+    friends.retain(|f| !f.username.is_empty() || !f.display_name.is_empty());
+    friends.sort_by(|a, b| {
+        b.presence_type.cmp(&a.presence_type).then_with(|| {
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase())
+        })
+    });
     Ok(friends)
-}
-
-pub fn fetch_user_games(user_id: u64, cookie: &str) -> Result<Vec<UserGameInfo>> {
-    let clean = sanitize_cookie(cookie);
-    let cookie_header = format!(".ROBLOSECURITY={clean}");
-
-    let mut request = agent().get(format!(
-        "https://games.roblox.com/v2/users/{user_id}/games?sortOrder=Desc&limit=50"
-    ));
-    if !clean.is_empty() {
-        request = request.header("Cookie", &cookie_header);
-    }
-
-    let mut response = request
-        .call()
-        .map_err(|err| Error::invalid(format!("Could not fetch games: {err}")))?;
-
-    let mut body = String::new();
-    response
-        .body_mut()
-        .as_reader()
-        .take(LIMIT as u64)
-        .read_to_string(&mut body)
-        .map_err(|err| Error::io("Could not read games data", err))?;
-
-    let value: Value = serde_json::from_str(&body)
-        .map_err(|err| Error::invalid(format!("Invalid games response: {err}")))?;
-
-    let mut games = Vec::new();
-    if let Some(data) = value.get("data").and_then(Value::as_array) {
-        for item in data {
-            let Some(id) = item.get("id").and_then(Value::as_u64) else {
-                continue;
-            };
-            let name = item
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("Untitled Game")
-                .to_string();
-            let place_id = item
-                .get("rootPlaceId")
-                .and_then(Value::as_u64)
-                .or_else(|| {
-                    item.get("rootPlace")
-                        .and_then(|rp| rp.get("id"))
-                        .and_then(Value::as_u64)
-                })
-                .unwrap_or(id);
-            let creator_name = item
-                .get("creator")
-                .and_then(|c| c.get("name"))
-                .and_then(Value::as_str)
-                .unwrap_or("Creator")
-                .to_string();
-
-            games.push(UserGameInfo {
-                id,
-                name,
-                place_id,
-                creator_name,
-            });
-        }
-    }
-
-    Ok(games)
 }
 
 #[cfg(windows)]
