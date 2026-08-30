@@ -191,7 +191,7 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
             let center = grid.at(12.0, 12.0);
             let radius = grid.len(9.0);
             painter.add(Shape::line(
-                arc(center, radius, std::f32::consts::PI, -0.45, 20),
+                arc(center, radius, -std::f32::consts::PI, -0.46, 20),
                 stroke,
             ));
             path(vec![
@@ -199,11 +199,14 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
                 grid.at(21.0, 8.0),
                 grid.at(16.0, 8.0),
             ]);
-            painter.add(Shape::line(arc(center, radius, 0.0, 2.69, 20), stroke));
+            painter.add(Shape::line(
+                arc(center, radius, 0.0, std::f32::consts::PI - 0.46, 20),
+                stroke,
+            ));
             path(vec![
-                grid.at(3.0, 21.0),
-                grid.at(3.0, 16.0),
                 grid.at(8.0, 16.0),
+                grid.at(3.0, 16.0),
+                grid.at(3.0, 21.0),
             ]);
         }
         Icon::Warning => {
