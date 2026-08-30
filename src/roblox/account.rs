@@ -200,7 +200,7 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
 
     let Ok(value) = serde_json::from_str::<Value>(&body) else {
         return Ok(QuickSignInPollResult::Pending(
-            "Waiting for confirmation on Roblox...".into(),
+            "Waiting for approval on Roblox (enter code and click Grant Access)...".into(),
         ));
     };
 
@@ -210,10 +210,10 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
         .unwrap_or("Created");
     match status {
         "Created" => Ok(QuickSignInPollResult::Pending(
-            "Ready - Enter code on roblox.com/crossdevice".into(),
+            "Ready - Enter code on Roblox and click Grant Access".into(),
         )),
         "UserLinked" => Ok(QuickSignInPollResult::Pending(
-            "User linked! Approving login on device...".into(),
+            "Linked! Click 'Grant Full Account Access' on Roblox...".into(),
         )),
         "Cancelled" | "Invalid" => Ok(QuickSignInPollResult::Denied),
         "Expired" => Ok(QuickSignInPollResult::Expired),
