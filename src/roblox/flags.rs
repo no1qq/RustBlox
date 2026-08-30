@@ -208,7 +208,6 @@ pub const PRESETS: &[FlagPreset] = &[
             ("FIntRenderShadowIntensity", "100"),
             ("FFlagNewLightTransitions", "true"),
             ("FIntTerrainArraySliceSize", "8"),
-            ("FFlagDebugGraphicsDisableDirect3D11", "false"),
         ],
     },
     FlagPreset {
@@ -220,20 +219,21 @@ pub const PRESETS: &[FlagPreset] = &[
         ],
     },
     FlagPreset {
-        name: "Disable Telemetry",
-        description: "Disables telemetry analytics and minimizes internal crash diagnostic reports.",
+        name: "Crash Upload Reducer",
+        description: "Minimizes backtrace crash upload percentage and reduces telemetry overhead.",
         flags: &[
-            ("FFlagDebugDisableTelemetry", "true"),
-            ("FFlagDebugDisableCrashReporting", "true"),
-            ("DFIntHttpRbxApiMaxRetryCount", "1"),
+            ("DFIntCrashUploadToBacktracePercentage", "0"),
+            ("DFIntCrashUploadToBacktracePercentageStudio", "0"),
+            ("FIntFRMMinFPS", "60"),
         ],
     },
     FlagPreset {
-        name: "Classic TopBar",
-        description: "Restores classic in-game UI menu and disables modern chrome topbar styling.",
+        name: "FPS & Display",
+        description: "Enables on-screen framerate counter and unthrottles rendering limits.",
         flags: &[
-            ("FFlagEnableInGameMenuModernChrome", "false"),
-            ("FFlagDisableNewIGMinGame", "true"),
+            ("DFIntTaskSchedulerTargetFps", "999"),
+            ("FIntTargetFPS", "999"),
+            ("FFlagDebugDisplayFPS", "true"),
         ],
     },
 ];

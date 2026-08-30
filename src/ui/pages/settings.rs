@@ -29,16 +29,14 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     ui.add_space(theme.metrics.gap_lg);
 
     match ui_state.settings_tab {
-        SettingsTab::General => general(ui, &theme, state, ui_state),
+        SettingsTab::General => general(ui, &theme, state),
         SettingsTab::Launch => launch(ui, &theme, state),
         SettingsTab::Appearance => appearance(ui, &theme, state, ui_state),
         SettingsTab::Advanced => advanced_tab(ui, &theme, state, ui_state),
     }
-
-    add_account_dialog(ui.ctx(), &theme, state, ui_state);
 }
 
-fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
+fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState) {
     let mut changed = false;
     let mut open_config = false;
     let mut open_data = false;
@@ -64,10 +62,6 @@ fn general(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state: &mu
             },
         );
     });
-
-    ui.add_space(theme.metrics.gap_lg);
-
-    accounts_section(ui, theme, state, ui_state);
 
     ui.add_space(theme.metrics.gap_lg);
 
@@ -678,214 +672,5 @@ fn advanced_tab(ui: &mut egui::Ui, theme: &Theme, state: &mut AppState, ui_state
     }
     if changed {
         state.mark_settings_dirty();
-    }
-}
-
-fn accounts_section(
-    ui: &mut egui::Ui,
-    theme: &Theme,
-    state: &mut AppState,
-    ui_state: &mut UiState,
-) {
-    widgets::section(
-        ui,
-        "Roblox Accounts & Switcher",
-        Some("Switch between saved Roblox accounts without re-logging in."),
-        |ui| {
-            if state.accounts.is_empty() {
-                widgets::nested(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(
-                            "No accounts saved yet. Add an account using your .ROBLOSECURITY cookie.",
-                        )
-                        .font(theme::text_style(theme::size::SMALL))
-                        .color(theme.palette.text_muted),
-                    );
-                });
-            } else {
-                let mut remove_id = None;
-                let mut switch_id = None;
-
-                for acc in &state.accounts {
-                    let is_active = state.active_account_id == Some(acc.id);
-                    widgets::nested(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.vertical(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(&acc.display_name)
-                                            .font(theme::strong(theme::size::BODY))
-                                            .color(theme.palette.text),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!("@{}", acc.username))
-                                            .font(theme::text_style(theme::size::SMALL))
-                                            .color(theme.palette.text_muted),
-                                    );
-                                    if is_active {
-                                        widgets::badge(ui, "Active", feedback::Tone::Success);
-                                    }
-                                });
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "ID: {} • Added: {}",
-                                        acc.id, acc.created_at
-                                    ))
-                                    .font(theme::text_style(theme::size::SMALL))
-                                    .color(theme.palette.text_muted),
-                                );
-                            });
-
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if widgets::Button::new("Remove")
-                                    .tone(widgets::Tone::Danger)
-                                    .size(widgets::Size::Small)
-                                    .show(ui)
-                                    .clicked()
-                                {
-                                    remove_id = Some(acc.id);
-                                }
-                                if !is_active
-                                    && widgets::Button::new("Switch")
-                                        .tone(widgets::Tone::Primary)
-                                        .size(widgets::Size::Small)
-                                        .show(ui)
-                                        .clicked()
-                                {
-                                    switch_id = Some(acc.id);
-                                }
-                            });
-                        });
-                    });
-                    ui.add_space(theme.metrics.gap_xs);
-                }
-
-                if let Some(id) = remove_id {
-                    state.remove_account(id);
-                }
-                if let Some(id) = switch_id {
-                    state.switch_account(id);
-                }
-            }
-
-            ui.add_space(theme.metrics.gap_md);
-            if widgets::Button::new("Add Account")
-                .icon(Icon::Plus)
-                .tone(widgets::Tone::Neutral)
-                .size(widgets::Size::Small)
-                .show(ui)
-                .clicked()
-            {
-                ui_state.account_cookie_input.clear();
-                ui_state.account_error = None;
-                ui_state.show_add_account_dialog = true;
-            }
-        },
-    );
-}
-
-fn add_account_dialog(
-    ctx: &egui::Context,
-    theme: &Theme,
-    state: &mut AppState,
-    ui_state: &mut UiState,
-) {
-    if !ui_state.show_add_account_dialog {
-        return;
-    }
-
-    let palette = theme.palette;
-    let mut close = false;
-    let mut add_cookie = None;
-
-    let response = egui::Modal::new(egui::Id::new("add-account-modal"))
-        .backdrop_color(palette.scrim)
-        .frame(
-            egui::Frame::new()
-                .fill(palette.surface)
-                .stroke(egui::Stroke::new(1.0, palette.border))
-                .corner_radius(theme.radius_lg())
-                .inner_margin(egui::Margin::same(22)),
-        )
-        .show(ctx, |ui| {
-            ui.set_width(460.0);
-
-            ui.label(
-                egui::RichText::new("Add Roblox Account")
-                    .font(theme::strong(theme::size::TITLE))
-                    .color(palette.text),
-            );
-            ui.add_space(theme.metrics.gap_xs);
-            ui.label(
-                egui::RichText::new(
-                    "Paste your .ROBLOSECURITY cookie from your browser to authenticate.",
-                )
-                .font(theme::text_style(theme::size::SMALL))
-                .color(palette.text_muted),
-            );
-
-            ui.add_space(theme.metrics.gap_md);
-            ui.label(
-                egui::RichText::new("Cookie (.ROBLOSECURITY):")
-                    .font(theme::strong(theme::size::BODY))
-                    .color(palette.text),
-            );
-            ui.add_space(theme.metrics.gap_xs);
-            widgets::text_field(
-                ui,
-                &mut ui_state.account_cookie_input,
-                "_|WARNING:-DO-NOT-SHARE-THIS.--...",
-                420.0,
-            );
-
-            if let Some(err) = &ui_state.account_error {
-                ui.add_space(theme.metrics.gap_xs);
-                ui.label(
-                    egui::RichText::new(err)
-                        .font(theme::text_style(theme::size::SMALL))
-                        .color(palette.danger),
-                );
-            }
-
-            ui.add_space(theme.metrics.gap_lg);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
-                if widgets::Button::primary("Save Account")
-                    .size(widgets::Size::Small)
-                    .show(ui)
-                    .clicked()
-                {
-                    add_cookie = Some(ui_state.account_cookie_input.clone());
-                }
-                if widgets::Button::new("Cancel")
-                    .tone(widgets::Tone::Neutral)
-                    .size(widgets::Size::Small)
-                    .show(ui)
-                    .clicked()
-                {
-                    close = true;
-                }
-            });
-        });
-
-    if let Some(cookie) = add_cookie {
-        if cookie.trim().is_empty() {
-            ui_state.account_error = Some("Cookie cannot be empty".into());
-        } else {
-            state.add_account(&cookie);
-            let sanitized = crate::roblox::account::sanitize_cookie(&cookie);
-            if state.accounts.iter().any(|acc| acc.cookie == sanitized) {
-                ui_state.show_add_account_dialog = false;
-                ui_state.account_cookie_input.clear();
-                ui_state.account_error = None;
-            } else {
-                ui_state.account_error = Some("Could not authenticate with this cookie".into());
-            }
-        }
-    }
-
-    if response.should_close() || close {
-        ui_state.show_add_account_dialog = false;
-        ui_state.account_error = None;
     }
 }

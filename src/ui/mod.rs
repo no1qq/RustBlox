@@ -30,23 +30,31 @@ pub enum Page {
     Shortcuts,
     Installation,
     FFlags,
+    Accounts,
     Settings,
     About,
 }
 
 impl Page {
-    pub const ALL: [Page; 8] = [
+    pub const ALL: [Page; 9] = [
         Page::Home,
         Page::Game,
         Page::Mods,
         Page::Shortcuts,
         Page::Installation,
         Page::FFlags,
+        Page::Accounts,
         Page::Settings,
         Page::About,
     ];
 
-    const SIMPLE: [Page; 4] = [Page::Home, Page::Game, Page::Settings, Page::About];
+    const SIMPLE: [Page; 5] = [
+        Page::Home,
+        Page::Game,
+        Page::Accounts,
+        Page::Settings,
+        Page::About,
+    ];
 
     pub fn visible(advanced: bool) -> &'static [Page] {
         if advanced {
@@ -64,6 +72,7 @@ impl Page {
             Page::Shortcuts => "Shortcuts",
             Page::Installation => "Installation",
             Page::FFlags => "FFlags",
+            Page::Accounts => "Account Manager",
             Page::Settings => "Settings",
             Page::About => "About",
         }
@@ -77,8 +86,41 @@ impl Page {
             Page::Shortcuts => icons::Icon::External,
             Page::Installation => icons::Icon::Package,
             Page::FFlags => icons::Icon::Flag,
+            Page::Accounts => icons::Icon::User,
             Page::Settings => icons::Icon::Sliders,
             Page::About => icons::Icon::Info,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AccountsTab {
+    #[default]
+    Accounts,
+    Friends,
+    Games,
+}
+
+impl AccountsTab {
+    pub const ALL: [AccountsTab; 3] = [
+        AccountsTab::Accounts,
+        AccountsTab::Friends,
+        AccountsTab::Games,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AccountsTab::Accounts => "Accounts",
+            AccountsTab::Friends => "Friends",
+            AccountsTab::Games => "Games",
+        }
+    }
+
+    pub fn icon(self) -> icons::Icon {
+        match self {
+            AccountsTab::Accounts => icons::Icon::User,
+            AccountsTab::Friends => icons::Icon::Users,
+            AccountsTab::Games => icons::Icon::Gamepad,
         }
     }
 }
@@ -191,9 +233,20 @@ pub struct UiState {
     pub clone_profile_on_create: bool,
     pub confirm_flag_reset: bool,
     pub raw_editor: Option<String>,
+    pub accounts_tab: AccountsTab,
+    pub selected_account_id: Option<u64>,
     pub account_cookie_input: String,
-    pub show_add_account_dialog: bool,
+    pub show_manual_account_dialog: bool,
+    pub show_quick_sign_in_dialog: bool,
+    pub quick_sign_in_session: Option<crate::roblox::account::QuickSignInSession>,
+    pub quick_sign_in_status: String,
     pub account_error: Option<String>,
+    pub friends_cache: Vec<crate::roblox::account::FriendInfo>,
+    pub friends_loaded_for: Option<u64>,
+    pub games_cache: Vec<crate::roblox::account::UserGameInfo>,
+    pub games_loaded_for: Option<u64>,
+    pub friends_loading: bool,
+    pub games_loading: bool,
     pub confirm: Option<LaunchTarget>,
     pub extra_args_buffer: Option<String>,
     pub channel_buffer: Option<String>,

@@ -28,6 +28,7 @@ enum Action {
     CreateProfile { name: String, clone: bool },
     DeleteProfile(String),
     ApplyPreset(usize),
+    ClearRefused,
 }
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
@@ -80,6 +81,16 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
                 refused.join(", ")
             ),
         );
+        ui.add_space(theme.metrics.gap_xs);
+        if widgets::Button::new("Remove refused flags from profile")
+            .icon(Icon::Trash)
+            .tone(widgets::Tone::Danger)
+            .size(widgets::Size::Small)
+            .show(ui)
+            .clicked()
+        {
+            action = Some(Action::ClearRefused);
+        }
         ui.add_space(theme.metrics.gap_lg);
     }
 
@@ -776,5 +787,6 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
         }
         Action::DeleteProfile(name) => state.delete_flag_profile(&name),
         Action::ApplyPreset(index) => state.apply_preset_flags(index),
+        Action::ClearRefused => state.clear_refused_flags(),
     }
 }

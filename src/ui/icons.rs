@@ -23,6 +23,9 @@ pub enum Icon {
     Package,
     Search,
     Copy,
+    User,
+    Users,
+    Gamepad,
     Minimize,
     Maximize,
     Restore,
@@ -317,6 +320,46 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
                 grid.at(13.0, 8.0),
             ]);
             path(vec![grid.at(17.0, 4.0), grid.at(17.0, 20.0)]);
+        }
+        Icon::User => {
+            painter.circle_stroke(grid.at(12.0, 8.0), grid.len(4.0), stroke);
+            path(vec![
+                grid.at(4.0, 20.0),
+                grid.at(7.0, 15.0),
+                grid.at(17.0, 15.0),
+                grid.at(20.0, 20.0),
+            ]);
+        }
+        Icon::Users => {
+            painter.circle_stroke(grid.at(9.0, 8.0), grid.len(3.0), stroke);
+            path(vec![
+                grid.at(3.0, 19.0),
+                grid.at(5.0, 15.0),
+                grid.at(13.0, 15.0),
+                grid.at(15.0, 19.0),
+            ]);
+            painter.circle_stroke(grid.at(16.0, 9.0), grid.len(2.5), stroke);
+            path(vec![
+                grid.at(15.0, 15.0),
+                grid.at(18.0, 15.0),
+                grid.at(21.0, 19.0),
+            ]);
+        }
+        Icon::Gamepad => {
+            closed(vec![
+                grid.at(5.0, 8.0),
+                grid.at(19.0, 8.0),
+                grid.at(21.0, 16.0),
+                grid.at(17.0, 19.0),
+                grid.at(14.0, 16.0),
+                grid.at(10.0, 16.0),
+                grid.at(7.0, 19.0),
+                grid.at(3.0, 16.0),
+            ]);
+            path(vec![grid.at(7.0, 12.0), grid.at(11.0, 12.0)]);
+            path(vec![grid.at(9.0, 10.0), grid.at(9.0, 14.0)]);
+            painter.circle_filled(grid.at(16.0, 11.0), grid.len(0.8), color);
+            painter.circle_filled(grid.at(18.0, 13.0), grid.len(0.8), color);
         }
         Icon::Minimize => {
             path(vec![grid.at(5.0, 12.0), grid.at(19.0, 12.0)]);

@@ -283,11 +283,47 @@ pub fn sidebar(
         ui_state.page = Page::Home;
     }
 
-    for page in pages {
+    let is_bottom_page =
+        |page: &Page| matches!(page, Page::Accounts | Page::Settings | Page::About);
+
+    for page in pages.iter().filter(|p| !is_bottom_page(p)) {
         let badge = match page {
             Page::FFlags if state.flags.active_count() > 0 => {
                 Some(state.flags.active_count().to_string())
             }
+            _ => None,
+        };
+        if widgets::nav_item(
+            ui,
+            page.icon(),
+            page.label(),
+            ui_state.page == *page,
+            badge.as_deref(),
+            expansion,
+        )
+        .clicked()
+        {
+            ui_state.page = *page;
+        }
+        ui.add_space(2.0);
+    }
+
+    ui.add_space(theme.metrics.gap_md);
+    if expansion > 0.3 {
+        let line_y = ui.cursor().top();
+        let stroke = egui::Stroke::new(1.0, theme.palette.border.gamma_multiply(0.6));
+        ui.painter().hline(
+            ui.cursor().left()..=(ui.cursor().left() + ui.available_width()),
+            line_y,
+            stroke,
+        );
+    }
+    ui.add_space(theme.metrics.gap_md);
+
+    for page in pages.iter().filter(|p| is_bottom_page(p)) {
+        let badge = match page {
+            Page::Accounts if state.accounts.is_empty() => None,
+            Page::Accounts => Some(state.accounts.len().to_string()),
             _ => None,
         };
         if widgets::nav_item(

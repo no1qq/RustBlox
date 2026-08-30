@@ -1572,6 +1572,23 @@ impl AppState {
             .collect()
     }
 
+    pub fn clear_refused_flags(&mut self) {
+        let refused = self.denied_active_flags();
+        if refused.is_empty() {
+            return;
+        }
+        self.flags.entries.retain(|entry| {
+            !refused
+                .iter()
+                .any(|key| key.eq_ignore_ascii_case(&entry.key))
+        });
+        self.denied_flags
+            .retain(|key| !refused.iter().any(|r| r.eq_ignore_ascii_case(key)));
+        self.commit_flags();
+        self.toasts
+            .success("Removed refused flags from active profile");
+    }
+
     pub fn mark_flags_dirty(&mut self) {
         self.flags_dirty_at = Some(Instant::now());
     }

@@ -280,7 +280,15 @@ pub fn clean_dot_arrow_png() -> Vec<u8> {
 
     for offset in 4..=8 {
         set_pixel(&mut pixels, cx - offset, cy, cyan.0, cyan.1, cyan.2, cyan.3);
-        set_pixel(&mut pixels, cx + 1 + offset, cy, cyan.0, cyan.1, cyan.2, cyan.3);
+        set_pixel(
+            &mut pixels,
+            cx + 1 + offset,
+            cy,
+            cyan.0,
+            cyan.1,
+            cyan.2,
+            cyan.3,
+        );
         set_pixel(&mut pixels, cx, cy - offset, cyan.0, cyan.1, cyan.2, cyan.3);
         set_pixel(
             &mut pixels,
@@ -390,7 +398,10 @@ mod tests {
             &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
         );
         let dot = clean_dot_arrow_png();
-        assert_eq!(&dot[0..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+        assert_eq!(
+            &dot[0..8],
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
+        );
     }
 
     #[test]
@@ -406,4 +417,3 @@ mod tests {
         assert!(!shiftlock_path(dir.path()).exists());
     }
 }
-
