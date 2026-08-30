@@ -136,8 +136,26 @@ pub fn retired_path(exe: &Path) -> PathBuf {
 }
 
 pub fn clear_retired(exe: &Path) {
-    let _ = std::fs::remove_file(retired_path(exe));
-    let _ = std::fs::remove_file(staged_path(exe));
+    let staged = staged_path(exe);
+    let retired = retired_path(exe);
+    let _ = std::fs::remove_file(&staged);
+
+    if retired.is_file() && std::fs::remove_file(&retired).is_err() {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let retired_str = retired.display().to_string();
+            let _ = std::process::Command::new("cmd.exe")
+                .args([
+                    "/C",
+                    &format!(
+                        "ping 127.0.0.1 -n 3 >nul & if exist \"{retired_str}\" del /f /q \"{retired_str}\""
+                    ),
+                ])
+                .creation_flags(0x08000000 | 0x00000008)
+                .spawn();
+        }
+    }
 }
 
 pub fn looks_like_a_program(bytes: &[u8]) -> bool {

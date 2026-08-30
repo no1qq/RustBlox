@@ -85,13 +85,7 @@ pub fn render(ctx: &egui::Context, theme: &Theme, state: &mut AppState) {
                                 Stroke::new(1.0, tint.gamma_multiply(0.32)),
                                 egui::StrokeKind::Inside,
                             );
-                            icons::draw(
-                                ui.painter(),
-                                icon,
-                                badge_rect.shrink(5.0),
-                                tint,
-                                1.8,
-                            );
+                            icons::draw(ui.painter(), icon, badge_rect.shrink(5.0), tint, 1.8);
 
                             ui.vertical(|ui| {
                                 ui.set_width(WIDTH - 82.0);

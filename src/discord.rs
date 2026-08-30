@@ -34,9 +34,7 @@ impl Details {
         if let Some(started) = self.started_at {
             activity["timestamps"] = json!({ "start": started });
         }
-        if !self.line.trim().is_empty()
-            || !self.note.trim().is_empty()
-            || self.started_at.is_some()
+        if !self.line.trim().is_empty() || !self.note.trim().is_empty() || self.started_at.is_some()
         {
             activity["assets"] = json!({
                 "large_image": "rustblox",
