@@ -695,7 +695,7 @@ fn quick_sign_in_modal(
                 .inner_margin(egui::Margin::same(24)),
         )
         .show(ctx, |ui| {
-            ui.set_width(420.0);
+            ui.set_width(480.0);
 
             ui.horizontal(|ui| {
                 let (icon_rect, _) =
@@ -718,7 +718,7 @@ fn quick_sign_in_modal(
             ui.add_space(theme.metrics.gap_sm);
 
             ui.label(
-                RichText::new("Enter this code in the Roblox App (More > Quick Log In) or in Roblox Account Settings:")
+                RichText::new("Enter this code on Roblox Quick Sign-In or in the Roblox App:")
                     .font(theme::text_style(theme::size::BODY))
                     .color(palette.text_muted),
             );
@@ -774,6 +774,8 @@ fn quick_sign_in_modal(
                 ui.add_space(theme.metrics.gap_lg);
 
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+
                     if widgets::Button::primary("Copy Code")
                         .size(widgets::Size::Small)
                         .show(ui)
@@ -783,14 +785,14 @@ fn quick_sign_in_modal(
                         state.toasts.success("Copied code to clipboard");
                     }
 
-                    if widgets::Button::new("Open Roblox Settings")
+                    if widgets::Button::new("Open Quick Login")
                         .icon(Icon::External)
                         .tone(widgets::Tone::Neutral)
                         .size(widgets::Size::Small)
                         .show(ui)
                         .clicked()
                     {
-                        state.open_url("https://www.roblox.com/my/account#!/security");
+                        state.open_url("https://www.roblox.com/crossdevicelogin/ConfirmCode");
                     }
 
                     if widgets::Button::new("Check Status")
@@ -803,16 +805,14 @@ fn quick_sign_in_modal(
                         poll_check = true;
                     }
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if widgets::Button::new("Close")
-                            .tone(widgets::Tone::Neutral)
-                            .size(widgets::Size::Small)
-                            .show(ui)
-                            .clicked()
-                        {
-                            close = true;
-                        }
-                    });
+                    if widgets::Button::new("Close")
+                        .tone(widgets::Tone::Neutral)
+                        .size(widgets::Size::Small)
+                        .show(ui)
+                        .clicked()
+                    {
+                        close = true;
+                    }
                 });
             } else {
                 ui.add_space(theme.metrics.gap_md);
