@@ -74,7 +74,8 @@ fn current_account_card(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
             widgets::nested(ui, |ui| {
                 ui.horizontal(|ui| {
                     let avatar_size = Vec2::splat(44.0);
-                    let (avatar_rect, _) = ui.allocate_exact_size(avatar_size, egui::Sense::hover());
+                    let (avatar_rect, _) =
+                        ui.allocate_exact_size(avatar_size, egui::Sense::hover());
                     ui.painter().circle_filled(
                         avatar_rect.center(),
                         22.0,
@@ -127,9 +128,11 @@ fn current_account_card(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
                                     .color(theme.palette.text),
                             );
                             ui.label(
-                                RichText::new("Sign in to sync your Roblox profile and switch accounts.")
-                                    .font(theme::text_style(theme::size::SMALL))
-                                    .color(theme.palette.text_muted),
+                                RichText::new(
+                                    "Sign in to sync your Roblox profile and switch accounts.",
+                                )
+                                .font(theme::text_style(theme::size::SMALL))
+                                .color(theme.palette.text_muted),
                             );
                         }
                     });
@@ -154,12 +157,7 @@ fn current_account_card(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
     );
 }
 
-fn manage_accounts_card(
-    ui: &mut Ui,
-    theme: &Theme,
-    state: &mut AppState,
-    ui_state: &mut UiState,
-) {
+fn manage_accounts_card(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
     widgets::section(
         ui,
         "Manage Accounts",
@@ -222,8 +220,10 @@ fn manage_accounts_card(
                         .inner_margin(egui::Margin::same(12))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                let (indicator_rect, _) =
-                                    ui.allocate_exact_size(Vec2::new(4.0, 36.0), egui::Sense::hover());
+                                let (indicator_rect, _) = ui.allocate_exact_size(
+                                    Vec2::new(4.0, 36.0),
+                                    egui::Sense::hover(),
+                                );
                                 if is_active {
                                     ui.painter().rect_filled(
                                         indicator_rect,
@@ -389,9 +389,11 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                                 .color(theme.palette.text),
                         );
                         ui.label(
-                            RichText::new("Please add and activate an account in the Accounts tab.")
-                                .font(theme::text_style(theme::size::SMALL))
-                                .color(theme.palette.text_muted),
+                            RichText::new(
+                                "Please add and activate an account in the Accounts tab.",
+                            )
+                            .font(theme::text_style(theme::size::SMALL))
+                            .color(theme.palette.text_muted),
                         );
                         ui.add_space(theme.metrics.gap_lg);
                     });
@@ -464,7 +466,8 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                                 1 => theme.palette.info,
                                 _ => theme.palette.text_muted.gamma_multiply(0.4),
                             };
-                            ui.painter().circle_filled(status_rect.center(), 5.0, status_color);
+                            ui.painter()
+                                .circle_filled(status_rect.center(), 5.0, status_color);
 
                             ui.add_space(theme.metrics.gap_xs);
 
@@ -474,7 +477,7 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                                         RichText::new(&friend.display_name)
                                             .font(theme::strong(theme::size::BODY))
                                             .color(theme.palette.text),
-                                        );
+                                    );
                                     ui.label(
                                         RichText::new(format!("@{}", friend.username))
                                             .font(theme::text_style(theme::size::SMALL))
@@ -550,9 +553,11 @@ fn render_games_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: 
                                 .color(theme.palette.text),
                         );
                         ui.label(
-                            RichText::new("Please add and activate an account in the Accounts tab.")
-                                .font(theme::text_style(theme::size::SMALL))
-                                .color(theme.palette.text_muted),
+                            RichText::new(
+                                "Please add and activate an account in the Accounts tab.",
+                            )
+                            .font(theme::text_style(theme::size::SMALL))
+                            .color(theme.palette.text_muted),
                         );
                         ui.add_space(theme.metrics.gap_lg);
                     });
@@ -732,7 +737,10 @@ fn quick_sign_in_modal(
                 ui.add_space(theme.metrics.gap_md);
 
                 let code_rect = ui
-                    .allocate_exact_size(Vec2::new(ui.available_width(), 56.0), egui::Sense::hover())
+                    .allocate_exact_size(
+                        Vec2::new(ui.available_width(), 56.0),
+                        egui::Sense::hover(),
+                    )
                     .0;
                 ui.painter()
                     .rect_filled(code_rect, theme.radius_md(), palette.surface_hover);
@@ -843,19 +851,23 @@ fn quick_sign_in_modal(
                         state.add_account(&cookie);
                         ui_state.show_quick_sign_in_dialog = false;
                         ui_state.quick_sign_in_session = None;
-                        state.toasts.success("Successfully authenticated with Quick Sign-In!");
+                        state
+                            .toasts
+                            .success("Successfully authenticated with Quick Sign-In!");
                     } else {
                         ui_state.quick_sign_in_status = "Approved! Finalizing login...".into();
                     }
                 }
                 Ok(QuickSignInPollResult::Pending) => {
-                    ui_state.quick_sign_in_status = "Waiting for you to approve code on Roblox...".into();
+                    ui_state.quick_sign_in_status =
+                        "Waiting for you to approve code on Roblox...".into();
                 }
                 Ok(QuickSignInPollResult::Denied) => {
                     ui_state.quick_sign_in_status = "Login was denied on the device.".into();
                 }
                 Ok(QuickSignInPollResult::Expired) => {
-                    ui_state.quick_sign_in_status = "Code expired. Please request a new code.".into();
+                    ui_state.quick_sign_in_status =
+                        "Code expired. Please request a new code.".into();
                 }
                 Ok(QuickSignInPollResult::Error(err)) => {
                     ui_state.quick_sign_in_status = format!("Poll error: {err}");

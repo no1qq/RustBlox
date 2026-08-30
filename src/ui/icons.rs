@@ -322,44 +322,58 @@ pub fn draw(painter: &Painter, icon: Icon, rect: Rect, color: Color32, weight: f
             path(vec![grid.at(17.0, 4.0), grid.at(17.0, 20.0)]);
         }
         Icon::User => {
-            painter.circle_stroke(grid.at(12.0, 8.0), grid.len(4.0), stroke);
-            path(vec![
-                grid.at(4.0, 20.0),
-                grid.at(7.0, 15.0),
-                grid.at(17.0, 15.0),
-                grid.at(20.0, 20.0),
-            ]);
+            painter.circle_stroke(grid.at(12.0, 8.0), grid.len(5.0), stroke);
+            let mut pts = Vec::with_capacity(13);
+            for i in 0..=12 {
+                let angle = std::f32::consts::PI + (std::f32::consts::PI * i as f32 / 12.0);
+                pts.push(grid.at(12.0 + 8.0 * angle.cos(), 21.0 + 8.0 * angle.sin()));
+            }
+            path(pts);
         }
         Icon::Users => {
-            painter.circle_stroke(grid.at(9.0, 8.0), grid.len(3.0), stroke);
+            painter.circle_stroke(grid.at(10.0, 8.0), grid.len(4.5), stroke);
+            let mut pts = Vec::with_capacity(13);
+            for i in 0..=12 {
+                let angle = std::f32::consts::PI + (std::f32::consts::PI * i as f32 / 12.0);
+                pts.push(grid.at(10.0 + 7.5 * angle.cos(), 21.0 + 7.5 * angle.sin()));
+            }
+            path(pts);
+
+            let mut head_pts = Vec::with_capacity(9);
+            for i in 0..=8 {
+                let angle =
+                    -std::f32::consts::FRAC_PI_2 + (std::f32::consts::PI * 0.75 * i as f32 / 8.0);
+                head_pts.push(grid.at(17.5 + 4.2 * angle.cos(), 7.5 + 4.2 * angle.sin()));
+            }
+            path(head_pts);
+
             path(vec![
-                grid.at(3.0, 19.0),
-                grid.at(5.0, 15.0),
-                grid.at(13.0, 15.0),
-                grid.at(15.0, 19.0),
-            ]);
-            painter.circle_stroke(grid.at(16.0, 9.0), grid.len(2.5), stroke);
-            path(vec![
-                grid.at(15.0, 15.0),
-                grid.at(18.0, 15.0),
-                grid.at(21.0, 19.0),
+                grid.at(18.0, 13.0),
+                grid.at(20.5, 15.5),
+                grid.at(22.0, 20.0),
             ]);
         }
         Icon::Gamepad => {
+            path(vec![grid.at(6.0, 11.0), grid.at(10.0, 11.0)]);
+            path(vec![grid.at(8.0, 9.0), grid.at(8.0, 13.0)]);
+            painter.circle_filled(grid.at(15.0, 12.0), grid.len(1.0), color);
+            painter.circle_filled(grid.at(18.0, 10.0), grid.len(1.0), color);
             closed(vec![
-                grid.at(5.0, 8.0),
-                grid.at(19.0, 8.0),
-                grid.at(21.0, 16.0),
-                grid.at(17.0, 19.0),
-                grid.at(14.0, 16.0),
-                grid.at(10.0, 16.0),
-                grid.at(7.0, 19.0),
-                grid.at(3.0, 16.0),
+                grid.at(6.7, 5.0),
+                grid.at(17.3, 5.0),
+                grid.at(21.3, 8.6),
+                grid.at(22.0, 16.0),
+                grid.at(19.0, 19.0),
+                grid.at(17.0, 18.0),
+                grid.at(15.5, 16.6),
+                grid.at(14.2, 16.0),
+                grid.at(9.8, 16.0),
+                grid.at(8.5, 16.6),
+                grid.at(7.0, 18.0),
+                grid.at(5.0, 19.0),
+                grid.at(2.0, 16.0),
+                grid.at(2.7, 8.6),
             ]);
-            path(vec![grid.at(7.0, 12.0), grid.at(11.0, 12.0)]);
-            path(vec![grid.at(9.0, 10.0), grid.at(9.0, 14.0)]);
-            painter.circle_filled(grid.at(16.0, 11.0), grid.len(0.8), color);
-            painter.circle_filled(grid.at(18.0, 13.0), grid.len(0.8), color);
         }
         Icon::Minimize => {
             path(vec![grid.at(5.0, 12.0), grid.at(19.0, 12.0)]);
