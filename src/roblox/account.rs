@@ -223,6 +223,7 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
         "Expired" => Ok(QuickSignInPollResult::Expired),
         "Validated" => {
             let login_payload = serde_json::json!({
+                "ctype": "AuthToken",
                 "cvalue": session.code,
                 "password": session.private_key
             });
@@ -255,6 +256,14 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
                 }
             }
 
+            for val in login_res.headers().get_all("set-cookie") {
+                if let Ok(cookie_str) = val.to_str() {
+                    if cookie_str.contains(".ROBLOSECURITY") {
+                        return Ok(QuickSignInPollResult::Approved(sanitize_cookie(cookie_str)));
+                    }
+                }
+            }
+
             for (name, val) in login_res.headers() {
                 if name.as_str().eq_ignore_ascii_case("set-cookie") {
                     if let Ok(cookie_str) = val.to_str() {
@@ -284,9 +293,10 @@ pub fn poll_quick_sign_in(session: &QuickSignInSession) -> Result<QuickSignInPol
                 }
             }
 
-            Ok(QuickSignInPollResult::Error(
-                "Validated, but session cookie could not be extracted".into(),
-            ))
+            Ok(QuickSignInPollResult::Error(format!(
+                "Validated, but login returned status {}: {login_body}",
+                login_res.status().as_u16()
+            )))
         }
         other => Ok(QuickSignInPollResult::Pending(format!("Status: {other}"))),
     }
