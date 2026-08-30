@@ -114,14 +114,16 @@ impl AppState {
             startup_notes.push("saved state was rebuilt from defaults after a problem".into());
         }
 
-        let flags = match flags::load_profile(&store.paths().flag_profiles_dir()) {
-            Ok(profile) => profile,
-            Err(err) => {
-                log_error!("flag profile could not be read: {err}");
-                startup_notes.push(format!("flag profile could not be read: {err}"));
-                FlagProfile::default()
-            }
-        };
+        let active_profile = settings.advanced.active_flag_profile.clone();
+        let flags =
+            match flags::load_named_profile(&store.paths().flag_profiles_dir(), &active_profile) {
+                Ok(profile) => profile,
+                Err(err) => {
+                    log_error!("flag profile could not be read: {err}");
+                    startup_notes.push(format!("flag profile could not be read: {err}"));
+                    FlagProfile::default()
+                }
+            };
 
         let mut app = Self {
             store,
@@ -173,6 +175,7 @@ impl AppState {
             crate::selfupdate::clear_retired(&exe);
         }
         app.refresh_shortcuts(true);
+        app.check_auto_clean_cache();
         app
     }
 
@@ -1184,6 +1187,52 @@ impl AppState {
         freed
     }
 
+    pub fn roblox_cache_size(&self) -> u64 {
+        let mut total = 0_u64;
+        if let Some(roblox) = crate::roblox::local_dir() {
+            for sub in ["logs", "downloads", "crashes", "LocalStorage", "http"] {
+                let target = roblox.join(sub);
+                if target.is_dir() {
+                    total += folder_size(&target);
+                }
+            }
+        }
+        let roblox_temp = std::env::temp_dir().join("Roblox");
+        if roblox_temp.is_dir() {
+            total += folder_size(&roblox_temp);
+        }
+        let downloads = self.store.paths().downloads_dir();
+        if downloads.is_dir() {
+            total += folder_size(&downloads);
+        }
+        total
+    }
+
+    pub fn check_auto_clean_cache(&mut self) {
+        if !self.settings.advanced.auto_clean_cache {
+            return;
+        }
+        let threshold_bytes = self
+            .settings
+            .advanced
+            .auto_clean_threshold_mb
+            .saturating_mul(1024 * 1024);
+        let size = self.roblox_cache_size();
+        if size >= threshold_bytes {
+            let freed = self.clean_roblox_cache();
+            if freed > 0 {
+                log_info!(
+                    "auto cleaned cache, freed {}",
+                    crate::roblox::install::format_size(freed)
+                );
+                self.toasts.info(format!(
+                    "Auto-cleaned {} of Roblox cache",
+                    crate::roblox::install::format_size(freed)
+                ));
+            }
+        }
+    }
+
     pub fn mod_plan(&self) -> ModPlan {
         ModPlan {
             root: self.store.paths().mods_dir(),
@@ -1446,8 +1495,12 @@ impl AppState {
         }
 
         self.flags.sort();
-        if let Err(err) = flags::save_profile(&self.store.paths().flag_profiles_dir(), &self.flags)
-        {
+        let profile_name = self.settings.advanced.active_flag_profile.clone();
+        if let Err(err) = flags::save_named_profile(
+            &self.store.paths().flag_profiles_dir(),
+            &profile_name,
+            &self.flags,
+        ) {
             log_error!("flag profile could not be saved: {err}");
             self.toasts
                 .error("Flag profile could not be saved", Some(err.to_string()));
@@ -1455,6 +1508,76 @@ impl AppState {
         }
 
         self.write_flags_to_client(false);
+    }
+
+    pub fn flag_profiles(&self) -> Vec<String> {
+        flags::list_profiles(&self.store.paths().flag_profiles_dir())
+    }
+
+    pub fn switch_flag_profile(&mut self, name: &str) {
+        let clean = flags::sanitize_profile_name(name);
+        self.flush_flags();
+        match flags::load_named_profile(&self.store.paths().flag_profiles_dir(), &clean) {
+            Ok(profile) => {
+                self.flags = profile;
+                self.settings.advanced.active_flag_profile = clean.clone();
+                self.mark_settings_dirty();
+                self.flush_settings();
+                self.write_flags_to_client(false);
+                self.toasts.info(format!("Switched to profile \"{clean}\""));
+            }
+            Err(err) => {
+                self.toasts
+                    .error("Could not switch profile", Some(err.to_string()));
+            }
+        }
+    }
+
+    pub fn create_flag_profile(&mut self, name: &str, clone_current: bool) {
+        let clean = flags::sanitize_profile_name(name);
+        let new_profile = if clone_current {
+            self.flags.clone()
+        } else {
+            FlagProfile::default()
+        };
+        if let Err(err) = flags::save_named_profile(
+            &self.store.paths().flag_profiles_dir(),
+            &clean,
+            &new_profile,
+        ) {
+            self.toasts
+                .error("Could not create profile", Some(err.to_string()));
+            return;
+        }
+        self.switch_flag_profile(&clean);
+    }
+
+    pub fn delete_flag_profile(&mut self, name: &str) {
+        let clean = flags::sanitize_profile_name(name);
+        if clean == "default" {
+            self.toasts
+                .warning("The default profile cannot be deleted", None);
+            return;
+        }
+        let _ = flags::delete_named_profile(&self.store.paths().flag_profiles_dir(), &clean);
+        if self.settings.advanced.active_flag_profile == clean {
+            self.switch_flag_profile("default");
+        } else {
+            self.toasts.info(format!("Deleted profile \"{clean}\""));
+        }
+    }
+
+    pub fn apply_preset_flags(&mut self, preset_index: usize) {
+        let Some(preset) = flags::PRESETS.get(preset_index) else {
+            return;
+        };
+        for &(key, val) in preset.flags {
+            self.flags
+                .set(key.to_string(), flags::FlagValue::from_input(val));
+        }
+        self.commit_flags();
+        self.toasts
+            .success(format!("Applied \"{}\" preset", preset.name));
     }
 
     pub fn write_flags_now(&mut self) {
@@ -1654,6 +1777,24 @@ fn remove_folder_contents(dir: &std::path::Path) -> u64 {
         } else if path.is_dir() {
             bytes += remove_folder_contents(&path);
             let _ = std::fs::remove_dir(&path);
+        }
+    }
+    bytes
+}
+
+fn folder_size(dir: &std::path::Path) -> u64 {
+    let mut bytes = 0_u64;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Ok(meta) = entry.metadata() {
+                bytes += meta.len();
+            }
+        } else if path.is_dir() {
+            bytes += folder_size(&path);
         }
     }
     bytes

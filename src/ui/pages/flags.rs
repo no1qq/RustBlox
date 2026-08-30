@@ -22,6 +22,12 @@ enum Action {
     CloseRaw,
     CommitRaw,
     Copied,
+    SwitchProfile(String),
+    OpenNewProfile,
+    CloseNewProfile,
+    CreateProfile { name: String, clone: bool },
+    DeleteProfile(String),
+    ApplyPreset(usize),
 }
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
@@ -57,11 +63,10 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
         },
     );
 
-    widgets::banner(
-        ui,
-        feedback::Tone::Warning,
-        "Roblox only applies the flags it has allowed",
-        "The client reads this file and ignores overrides not present on Roblox's official internal allowlist. FastFlags should be verified for your client version. Presets have been removed so you have full direct control over your profile.");
+    profile_selector(ui, &theme, state, ui_state, &mut action);
+    ui.add_space(theme.metrics.gap_lg);
+
+    presets_section(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
 
     let refused = state.denied_active_flags();
@@ -86,10 +91,119 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, ui_state: &mut UiState) {
     let ctx = ui.ctx().clone();
     json_dialog(&ctx, &theme, ui_state, &mut action);
     reset_dialog(&ctx, &theme, ui_state, &mut action);
+    new_profile_dialog(&ctx, &theme, ui_state, &mut action);
 
     if let Some(action) = action {
         apply(state, ui_state, action);
     }
+}
+
+fn profile_selector(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    state: &AppState,
+    _ui_state: &mut UiState,
+    action: &mut Option<Action>,
+) {
+    let profiles = state.flag_profiles();
+    let current = state.settings.advanced.active_flag_profile.clone();
+
+    widgets::section(
+        ui,
+        "Active Profile",
+        Some("Switch between different FastFlag configurations or create separate setups for specific games."),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+
+                for name in &profiles {
+                    let is_active = name == &current;
+                    let display_name = if name == "default" {
+                        "Default".to_string()
+                    } else {
+                        flags::sanitize_profile_name(name)
+                    };
+
+                    let btn = if is_active {
+                        widgets::Button::primary(&display_name)
+                    } else {
+                        widgets::Button::new(&display_name).tone(widgets::Tone::Neutral)
+                    };
+
+                    if btn.show(ui).clicked() && !is_active {
+                        *action = Some(Action::SwitchProfile(name.clone()));
+                    }
+                }
+
+                if widgets::Button::new("New profile")
+                    .icon(Icon::Plus)
+                    .tone(widgets::Tone::Ghost)
+                    .show(ui)
+                    .clicked()
+                {
+                    *action = Some(Action::OpenNewProfile);
+                }
+
+                if current != "default"
+                    && widgets::Button::new("Delete profile")
+                        .icon(Icon::Trash)
+                        .tone(widgets::Tone::Ghost)
+                        .show(ui)
+                        .clicked()
+                {
+                    *action = Some(Action::DeleteProfile(current));
+                }
+            });
+        },
+    );
+}
+
+fn presets_section(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    _state: &AppState,
+    action: &mut Option<Action>,
+) {
+    widgets::section(
+        ui,
+        "Curated Presets",
+        Some("One-click tested flag bundles. Applying a preset adds or updates its flags in your active profile."),
+        |ui| {
+            for (index, preset) in flags::PRESETS.iter().enumerate() {
+                widgets::nested(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.set_width((ui.available_width() - 120.0).max(100.0));
+                            ui.label(
+                                egui::RichText::new(preset.name)
+                                    .font(theme::strong(theme::size::BODY))
+                                    .color(theme.palette.text),
+                            );
+                            ui.add_space(2.0);
+                            ui.label(
+                                egui::RichText::new(preset.description)
+                                    .font(theme::text_style(theme::size::MICRO))
+                                    .color(theme.palette.text_muted),
+                            );
+                        });
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if widgets::Button::new("Apply")
+                                .icon(Icon::Check)
+                                .tone(widgets::Tone::Neutral)
+                                .size(widgets::Size::Small)
+                                .show(ui)
+                                .clicked()
+                            {
+                                *action = Some(Action::ApplyPreset(index));
+                            }
+                        });
+                    });
+                });
+                ui.add_space(theme.metrics.gap_xs);
+            }
+        },
+    );
 }
 
 fn applying(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
@@ -336,16 +450,20 @@ fn editor(
     action: &mut Option<Action>,
 ) {
     let refused = state.denied_active_flags();
-    let filter = ui_state.flag_filter.to_lowercase();
+    let filter = ui_state.flag_filter.trim().to_lowercase();
     let entries = state.flags.entries.clone();
     let visible: Vec<_> = entries
         .iter()
-        .filter(|entry| filter.is_empty() || entry.key.to_lowercase().contains(&filter))
+        .filter(|entry| {
+            filter.is_empty()
+                || entry.key.to_lowercase().contains(&filter)
+                || entry.value.display().to_lowercase().contains(&filter)
+        })
         .collect();
 
     widgets::section(
         ui,
-        "Profile",
+        "Profile Flags",
         Some("Every flag RustBlox will write to ClientAppSettings.json."),
         |ui| {
             ui.horizontal(|ui| {
@@ -386,17 +504,25 @@ fn editor(
                 return;
             }
 
-            if entries.len() > 6 {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
-                    widgets::text_field(ui, &mut ui_state.flag_filter, "Filter by name", 220.0);
-                });
-                ui.add_space(theme.metrics.gap_sm);
-            }
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = theme.metrics.gap_sm;
+                widgets::text_field(
+                    ui,
+                    &mut ui_state.flag_filter,
+                    "Search flags by name or value...",
+                    280.0,
+                );
+                if !ui_state.flag_filter.is_empty()
+                    && widgets::icon_button(ui, Icon::Close, "Clear search", true).clicked()
+                {
+                    ui_state.flag_filter.clear();
+                }
+            });
+            ui.add_space(theme.metrics.gap_sm);
 
             if visible.is_empty() {
                 ui.label(
-                    egui::RichText::new("Nothing to show with that filter.")
+                    egui::RichText::new("No flags match your search query.")
                         .font(theme::text_style(theme::size::SMALL))
                         .color(theme.palette.text_muted),
                 );
@@ -479,6 +605,90 @@ fn columns(ui: &mut egui::Ui, theme: &Theme) {
     ui.add_space(theme.metrics.gap_xs);
 }
 
+fn new_profile_dialog(
+    ctx: &egui::Context,
+    theme: &Theme,
+    ui_state: &mut UiState,
+    action: &mut Option<Action>,
+) {
+    if !ui_state.show_new_profile_dialog {
+        return;
+    }
+
+    let palette = theme.palette;
+    let mut close = false;
+
+    let response = egui::Modal::new(egui::Id::new("new-flag-profile"))
+        .backdrop_color(palette.scrim)
+        .frame(
+            egui::Frame::new()
+                .fill(palette.surface)
+                .stroke(egui::Stroke::new(1.0, palette.border))
+                .corner_radius(theme.radius_lg())
+                .inner_margin(egui::Margin::same(22)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(380.0);
+
+            ui.label(
+                egui::RichText::new("Create FastFlag Profile")
+                    .font(theme::strong(theme::size::TITLE))
+                    .color(palette.text),
+            );
+            ui.add_space(theme.metrics.gap_xs);
+            ui.label(
+                egui::RichText::new("Enter a name for your new configuration profile.")
+                    .font(theme::text_style(theme::size::SMALL))
+                    .color(palette.text_muted),
+            );
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::text_field(
+                ui,
+                &mut ui_state.new_profile_name,
+                "Profile name (e.g. competitive)",
+                320.0,
+            );
+
+            ui.add_space(theme.metrics.gap_sm);
+            ui.horizontal(|ui| {
+                widgets::toggle(ui, &mut ui_state.clone_profile_on_create);
+                ui.label(
+                    egui::RichText::new("Copy flags from current profile")
+                        .font(theme::text_style(theme::size::SMALL))
+                        .color(palette.text),
+                );
+            });
+
+            ui.add_space(theme.metrics.gap_lg);
+            ui.horizontal(|ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let valid = !ui_state.new_profile_name.trim().is_empty();
+                    if widgets::Button::primary("Create")
+                        .enabled(valid)
+                        .show(ui)
+                        .clicked()
+                    {
+                        let name = ui_state.new_profile_name.trim().to_string();
+                        let clone = ui_state.clone_profile_on_create;
+                        *action = Some(Action::CreateProfile { name, clone });
+                    }
+                    if widgets::Button::new("Cancel")
+                        .tone(widgets::Tone::Ghost)
+                        .show(ui)
+                        .clicked()
+                    {
+                        close = true;
+                    }
+                });
+            });
+        });
+
+    if (close || response.should_close()) && action.is_none() {
+        *action = Some(Action::CloseNewProfile);
+    }
+}
+
 fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
     match action {
         Action::Add => {
@@ -551,5 +761,20 @@ fn apply(state: &mut AppState, ui_state: &mut UiState, action: Action) {
                 state.commit_flags();
             }
         }
+        Action::SwitchProfile(name) => state.switch_flag_profile(&name),
+        Action::OpenNewProfile => {
+            ui_state.new_profile_name.clear();
+            ui_state.clone_profile_on_create = true;
+            ui_state.show_new_profile_dialog = true;
+        }
+        Action::CloseNewProfile => {
+            ui_state.show_new_profile_dialog = false;
+        }
+        Action::CreateProfile { name, clone } => {
+            ui_state.show_new_profile_dialog = false;
+            state.create_flag_profile(&name, clone);
+        }
+        Action::DeleteProfile(name) => state.delete_flag_profile(&name),
+        Action::ApplyPreset(index) => state.apply_preset_flags(index),
     }
 }

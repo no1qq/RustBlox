@@ -555,6 +555,9 @@ pub struct AdvancedSettings {
     pub apply_flag_profile: bool,
     pub keep_launch_logs: bool,
     pub extra_player_arguments: String,
+    pub auto_clean_cache: bool,
+    pub auto_clean_threshold_mb: u64,
+    pub active_flag_profile: String,
 }
 
 impl Default for AdvancedSettings {
@@ -568,6 +571,9 @@ impl Default for AdvancedSettings {
             apply_flag_profile: true,
             keep_launch_logs: true,
             extra_player_arguments: String::new(),
+            auto_clean_cache: false,
+            auto_clean_threshold_mb: 500,
+            active_flag_profile: "default".into(),
         }
     }
 }
@@ -605,6 +611,14 @@ impl AdvancedSettings {
         if self.extra_player_arguments.chars().count() > 512 {
             self.extra_player_arguments = self.extra_player_arguments.chars().take(512).collect();
             notes.push("extra player arguments trimmed to 512 characters".into());
+        }
+
+        if self.auto_clean_threshold_mb == 0 || self.auto_clean_threshold_mb > 50_000 {
+            self.auto_clean_threshold_mb = 500;
+        }
+
+        if self.active_flag_profile.trim().is_empty() {
+            self.active_flag_profile = "default".into();
         }
 
         notes

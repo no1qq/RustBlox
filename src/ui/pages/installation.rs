@@ -19,6 +19,8 @@ enum Action {
     Restore(&'static str),
     Install { force: bool },
     CleanCache,
+    ToggleAutoClean,
+    SetAutoCleanThreshold(u64),
 }
 
 pub fn render(ui: &mut egui::Ui, state: &mut AppState, _ui_state: &mut UiState) {
@@ -54,7 +56,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState, _ui_state: &mut UiState) 
     ui.add_space(theme.metrics.gap_lg);
     managed_install(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
-    cleanup(ui, &theme, &mut action);
+    cleanup(ui, &theme, state, &mut action);
     ui.add_space(theme.metrics.gap_lg);
     integrations(ui, &theme, state, &mut action);
 
@@ -375,16 +377,63 @@ fn integrations(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut
     );
 }
 
-fn cleanup(ui: &mut egui::Ui, _theme: &Theme, action: &mut Option<Action>) {
+fn cleanup(ui: &mut egui::Ui, theme: &Theme, state: &AppState, action: &mut Option<Action>) {
+    let cache_size = state.roblox_cache_size();
+    let mut auto_clean = state.settings.advanced.auto_clean_cache;
+    let threshold = state.settings.advanced.auto_clean_threshold_mb;
+
     widgets::section(
         ui,
         "Storage & Cache Cleaner",
         Some("Clears accumulated Roblox HTTP caches, log files, and old crash dumps."),
         |ui| {
+            widgets::detail_row(ui, "Current cache size", &format_size(cache_size), false);
+            ui.add_space(theme.metrics.gap_md);
+
             widgets::setting_row(
                 ui,
-                "Clean temporary caches",
-                "Frees disk space by clearing temporary downloads, textures, and crash dumps without affecting settings.",
+                "Automatic cache cleaning on launch",
+                "Automatically sweeps temporary logs and HTTP cache when Roblox starts if cache exceeds threshold.",
+                |ui| {
+                    if widgets::toggle(ui, &mut auto_clean).changed() {
+                        *action = Some(Action::ToggleAutoClean);
+                    }
+                },
+            );
+
+            if auto_clean {
+                ui.add_space(theme.metrics.gap_sm);
+                widgets::nested(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Threshold:")
+                                .font(theme::text_style(theme::size::SMALL))
+                                .color(theme.palette.text_muted),
+                        );
+                        ui.spacing_mut().item_spacing.x = theme.metrics.gap_xs;
+                        for &mb in &[250, 500, 1000, 2000] {
+                            let is_active = threshold == mb;
+                            let label = format!("{mb} MB");
+                            let btn = if is_active {
+                                widgets::Button::primary(&label).size(widgets::Size::Small)
+                            } else {
+                                widgets::Button::new(&label)
+                                    .tone(widgets::Tone::Neutral)
+                                    .size(widgets::Size::Small)
+                            };
+                            if btn.show(ui).clicked() && !is_active {
+                                *action = Some(Action::SetAutoCleanThreshold(mb));
+                            }
+                        }
+                    });
+                });
+            }
+
+            ui.add_space(theme.metrics.gap_md);
+            widgets::setting_row(
+                ui,
+                "Manual cleanup",
+                "Instantly purges temporary downloads, caches, and crash dumps.",
                 |ui| {
                     if widgets::Button::new("Clean cache now")
                         .icon(Icon::Trash)
@@ -412,6 +461,16 @@ fn apply(state: &mut AppState, action: Action) {
             state
                 .toasts
                 .success(format!("Freed {} of cache and dumps", format_size(freed)));
+        }
+        Action::ToggleAutoClean => {
+            state.settings.advanced.auto_clean_cache = !state.settings.advanced.auto_clean_cache;
+            state.mark_settings_dirty();
+            state.flush_settings();
+        }
+        Action::SetAutoCleanThreshold(mb) => {
+            state.settings.advanced.auto_clean_threshold_mb = mb;
+            state.mark_settings_dirty();
+            state.flush_settings();
         }
     }
 }

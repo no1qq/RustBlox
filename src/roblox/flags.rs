@@ -181,22 +181,123 @@ pub fn looks_unusual(key: &str) -> bool {
     !KNOWN_PREFIXES.iter().any(|prefix| key.starts_with(prefix))
 }
 
-pub fn profile_path(dir: &Path) -> PathBuf {
-    dir.join("default.json")
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FlagPreset {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub flags: &'static [(&'static str, &'static str)],
 }
 
-pub fn load_profile(dir: &Path) -> Result<FlagProfile> {
-    let path = profile_path(dir);
+pub const PRESETS: &[FlagPreset] = &[
+    FlagPreset {
+        name: "Max Performance",
+        description: "Optimizes frame rates, unthrottles FPS, and disables heavy post-processing effects.",
+        flags: &[
+            ("DFIntTaskSchedulerTargetFps", "999"),
+            ("FFlagDisablePostFx", "true"),
+            ("FFlagGlobalWindActive", "false"),
+            ("FIntFRMMinFPS", "60"),
+            ("DFIntCSGLevelOfDetailSwitchingDistance", "0"),
+        ],
+    },
+    FlagPreset {
+        name: "Max Visuals",
+        description: "Enables high quality shadow casting, advanced lighting transitions, and max terrain detail.",
+        flags: &[
+            ("DFIntTaskSchedulerTargetFps", "999"),
+            ("FIntRenderShadowIntensity", "100"),
+            ("FFlagNewLightTransitions", "true"),
+            ("FIntTerrainArraySliceSize", "8"),
+            ("FFlagDebugGraphicsDisableDirect3D11", "false"),
+        ],
+    },
+    FlagPreset {
+        name: "Vulkan Backend",
+        description: "Directs Roblox to use the Vulkan graphics renderer instead of DirectX 11.",
+        flags: &[
+            ("FFlagDebugGraphicsDisableDirect3D11", "true"),
+            ("FFlagDebugGraphicsPreferVulkan", "true"),
+        ],
+    },
+    FlagPreset {
+        name: "Disable Telemetry",
+        description: "Disables telemetry analytics and minimizes internal crash diagnostic reports.",
+        flags: &[
+            ("FFlagDebugDisableTelemetry", "true"),
+            ("FFlagDebugDisableCrashReporting", "true"),
+            ("DFIntHttpRbxApiMaxRetryCount", "1"),
+        ],
+    },
+    FlagPreset {
+        name: "Classic TopBar",
+        description: "Restores classic in-game UI menu and disables modern chrome topbar styling.",
+        flags: &[
+            ("FFlagEnableInGameMenuModernChrome", "false"),
+            ("FFlagDisableNewIGMinGame", "true"),
+        ],
+    },
+];
+
+pub fn sanitize_profile_name(name: &str) -> String {
+    let clean: String = name
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if clean.is_empty() {
+        "default".into()
+    } else {
+        clean.to_lowercase()
+    }
+}
+
+pub fn named_profile_path(dir: &Path, name: &str) -> PathBuf {
+    let clean = sanitize_profile_name(name);
+    dir.join(format!("{clean}.json"))
+}
+
+pub fn list_profiles(dir: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let sanitized = sanitize_profile_name(stem);
+                    if sanitized != "default" && !names.contains(&sanitized) {
+                        names.push(sanitized);
+                    }
+                }
+            }
+        }
+    }
+    names.sort();
+    names.insert(0, "default".into());
+    names
+}
+
+pub fn load_named_profile(dir: &Path, name: &str) -> Result<FlagProfile> {
+    let path = named_profile_path(dir, name);
     match fs::read_to_string_if_exists(&path)? {
         Some(text) => FlagProfile::parse(&text),
         None => Ok(FlagProfile::default()),
     }
 }
 
-pub fn save_profile(dir: &Path, profile: &FlagProfile) -> Result<()> {
+pub fn save_named_profile(dir: &Path, name: &str, profile: &FlagProfile) -> Result<()> {
     let mut text = profile.to_pretty();
     text.push('\n');
-    fs::write_atomic(&profile_path(dir), text.as_bytes())
+    fs::write_atomic(&named_profile_path(dir, name), text.as_bytes())
+}
+
+pub fn delete_named_profile(dir: &Path, name: &str) -> Result<()> {
+    let clean = sanitize_profile_name(name);
+    if clean == "default" {
+        return Ok(());
+    }
+    let path = named_profile_path(dir, &clean);
+    let _ = std::fs::remove_file(path);
+    Ok(())
 }
 
 pub const BACKUPS_KEPT: usize = 10;
@@ -401,8 +502,8 @@ mod tests {
         profile.set("FFlagAlpha".into(), FlagValue::Bool(true));
         profile.set("DFIntBeta".into(), FlagValue::Number(42));
 
-        save_profile(dir.path(), &profile).unwrap();
-        let loaded = load_profile(dir.path()).unwrap();
+        save_named_profile(dir.path(), "default", &profile).unwrap();
+        let loaded = load_named_profile(dir.path(), "default").unwrap();
 
         assert_eq!(loaded.to_json(), profile.to_json());
     }
@@ -434,6 +535,40 @@ mod tests {
     #[test]
     fn a_missing_profile_loads_as_empty() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(load_profile(dir.path()).unwrap(), FlagProfile::default());
+        assert_eq!(
+            load_named_profile(dir.path(), "default").unwrap(),
+            FlagProfile::default()
+        );
+    }
+
+    #[test]
+    fn named_profiles_can_be_created_listed_and_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut profile = FlagProfile::default();
+        profile.set("FFlagSpeed".into(), FlagValue::Bool(true));
+
+        save_named_profile(dir.path(), "competitive", &profile).unwrap();
+        let list = list_profiles(dir.path());
+        assert_eq!(list, vec!["default", "competitive"]);
+
+        let loaded = load_named_profile(dir.path(), "competitive").unwrap();
+        assert_eq!(loaded.entries.len(), 1);
+
+        delete_named_profile(dir.path(), "competitive").unwrap();
+        let list_after = list_profiles(dir.path());
+        assert_eq!(list_after, vec!["default"]);
+    }
+
+    #[test]
+    fn curated_presets_have_valid_flags() {
+        for preset in PRESETS {
+            assert!(!preset.name.is_empty());
+            assert!(!preset.description.is_empty());
+            assert!(!preset.flags.is_empty());
+            for (key, val) in preset.flags {
+                assert!(validate_key(key).is_ok());
+                assert!(!val.is_empty());
+            }
+        }
     }
 }
