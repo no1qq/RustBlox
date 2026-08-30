@@ -913,6 +913,11 @@ impl AppState {
 
         log_info!("launch requested: {}", target.headline());
 
+        let account_cookie = self
+            .active_account_id
+            .and_then(|id| self.accounts.iter().find(|acc| acc.id == id))
+            .map(|acc| acc.cookie.clone());
+
         let plan = LaunchPlan {
             target: target.clone(),
             scan: self.scan_options(),
@@ -928,6 +933,7 @@ impl AppState {
             extra_arguments: self.settings.advanced.extra_player_arguments.clone(),
             timeout: Duration::from_secs(self.settings.launch.launch_timeout_secs),
             allow_when_running: !self.settings.launch.warn_when_already_running,
+            account_cookie,
         };
 
         let cancel = self.session.begin(target);

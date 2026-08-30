@@ -188,6 +188,7 @@ pub struct LaunchPlan {
     pub extra_arguments: String,
     pub timeout: Duration,
     pub allow_when_running: bool,
+    pub account_cookie: Option<String>,
 }
 
 pub struct Launcher;
@@ -368,6 +369,31 @@ fn execute(
 
     active(emit, StepId::Start);
     let mut all_arguments = arguments;
+    if let Some(cookie) = &plan.account_cookie {
+        let _ = super::account::apply_account_session(cookie);
+        if let Ok(ticket) = super::account::fetch_authentication_ticket(cookie) {
+            match &plan.target {
+                LaunchTarget::App => {
+                    all_arguments = vec!["--app".into(), "-t".into(), ticket];
+                }
+                LaunchTarget::Place { place_id, .. } => {
+                    all_arguments = vec![
+                        "--app".into(),
+                        "-t".into(),
+                        ticket,
+                        "-j".into(),
+                        format!(
+                            "https://assetgame.roblox.com/game/PlaceLauncher.ashx?request=RequestGame&placeId={place_id}&isPlayTogetherGame=false"
+                        ),
+                    ];
+                }
+                LaunchTarget::Forward(_) => {
+                    all_arguments.push("-t".into());
+                    all_arguments.push(ticket);
+                }
+            }
+        }
+    }
     all_arguments.extend(split_arguments(&plan.extra_arguments));
 
     let mut child = match platform::spawn_detached(
