@@ -75,6 +75,10 @@ fn current_account_card(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
                     let avatar_size = Vec2::splat(44.0);
                     let (avatar_rect, _) =
                         ui.allocate_exact_size(avatar_size, egui::Sense::hover());
+                    let initial = active_account
+                        .as_ref()
+                        .and_then(|a| a.display_name.chars().next())
+                        .map(|c| c.to_uppercase().to_string());
                     ui.painter().circle_filled(
                         avatar_rect.center(),
                         22.0,
@@ -84,19 +88,36 @@ fn current_account_card(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
                             theme.palette.surface_hover
                         },
                     );
-
-                    let icon_color = if active_account.is_some() {
-                        theme.palette.accent
-                    } else {
-                        theme.palette.text_muted
-                    };
-                    crate::ui::icons::draw(
-                        ui.painter(),
-                        Icon::User,
-                        avatar_rect.shrink(10.0),
-                        icon_color,
-                        1.8,
+                    ui.painter().circle_stroke(
+                        avatar_rect.center(),
+                        22.0,
+                        egui::Stroke::new(
+                            1.5,
+                            if active_account.is_some() {
+                                theme.palette.accent
+                            } else {
+                                theme.palette.border
+                            },
+                        ),
                     );
+
+                    if let Some(init) = initial {
+                        ui.painter().text(
+                            avatar_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            &init,
+                            egui::FontId::proportional(18.0),
+                            theme.palette.accent,
+                        );
+                    } else {
+                        crate::ui::icons::draw(
+                            ui.painter(),
+                            Icon::User,
+                            avatar_rect.shrink(10.0),
+                            theme.palette.text_muted,
+                            1.8,
+                        );
+                    }
 
                     ui.add_space(theme.metrics.gap_sm);
 
@@ -219,17 +240,45 @@ fn manage_accounts_card(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_sta
                         .inner_margin(egui::Margin::same(12))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                let (indicator_rect, _) = ui.allocate_exact_size(
-                                    Vec2::new(4.0, 36.0),
-                                    egui::Sense::hover(),
+                                let (avatar_rect, _) =
+                                    ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::hover());
+                                let initial = acc
+                                    .display_name
+                                    .chars()
+                                    .next()
+                                    .unwrap_or('?')
+                                    .to_uppercase()
+                                    .to_string();
+                                let avatar_bg = if is_active {
+                                    theme.palette.accent.gamma_multiply(0.2)
+                                } else {
+                                    theme.palette.surface_hover
+                                };
+                                ui.painter()
+                                    .circle_filled(avatar_rect.center(), 18.0, avatar_bg);
+                                ui.painter().circle_stroke(
+                                    avatar_rect.center(),
+                                    18.0,
+                                    egui::Stroke::new(
+                                        if is_active { 1.5 } else { 1.0 },
+                                        if is_active {
+                                            theme.palette.accent
+                                        } else {
+                                            theme.palette.border
+                                        },
+                                    ),
                                 );
-                                if is_active {
-                                    ui.painter().rect_filled(
-                                        indicator_rect,
-                                        theme.radius_sm(),
-                                        theme.palette.accent,
-                                    );
-                                }
+                                ui.painter().text(
+                                    avatar_rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    &initial,
+                                    egui::FontId::proportional(15.0),
+                                    if is_active {
+                                        theme.palette.accent
+                                    } else {
+                                        theme.palette.text
+                                    },
+                                );
 
                                 ui.add_space(theme.metrics.gap_xs);
 
@@ -477,12 +526,19 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                             } else {
                                 theme.palette.text_muted
                             };
-                            crate::ui::icons::draw(
-                                ui.painter(),
-                                Icon::User,
-                                avatar_rect.shrink(9.0),
+                            let initial = friend
+                                .display_name
+                                .chars()
+                                .next()
+                                .unwrap_or('?')
+                                .to_uppercase()
+                                .to_string();
+                            ui.painter().text(
+                                avatar_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                &initial,
+                                egui::FontId::proportional(16.0),
                                 icon_color,
-                                1.6,
                             );
 
                             let status_dot_pos = avatar_rect.right_bottom() + Vec2::new(-4.0, -4.0);

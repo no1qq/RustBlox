@@ -190,6 +190,7 @@ pub fn scan_security(player_pid: Option<u32>, install_dir: Option<&Path>) -> Sec
 
     if let Some(pid) = player_pid {
         scan_roblox_memory_handles(pid, &mut threats);
+        scan_roblox_unbacked_executable_memory(pid, &mut threats);
     }
 
     if let Some(dir) = install_dir {
@@ -605,6 +606,92 @@ fn scan_roblox_memory_handles(target_pid: u32, threats: &mut Vec<SecurityThreat>
     }
 }
 
+fn scan_roblox_unbacked_executable_memory(target_pid: u32, threats: &mut Vec<SecurityThreat>) {
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, target_pid) };
+    if handle.is_null() {
+        return;
+    }
+    let handle_guard = OwnedHandle(handle);
+
+    let kernel32_name = wide_null("kernel32.dll");
+    let h_kernel32 = unsafe { LoadLibraryW(kernel32_name.as_ptr()) };
+    if h_kernel32.is_null() {
+        return;
+    }
+    let h_kernel_guard = OwnedHandle(h_kernel32);
+
+    #[repr(C)]
+    struct MEM_BASIC_INFO {
+        base_address: *mut std::ffi::c_void,
+        allocation_base: *mut std::ffi::c_void,
+        allocation_protect: u32,
+        partition_id: u16,
+        region_size: usize,
+        state: u32,
+        protect: u32,
+        type_: u32,
+    }
+
+    type VirtualQueryExFn = unsafe extern "system" fn(
+        h_process: HANDLE,
+        lp_address: *const std::ffi::c_void,
+        lp_buffer: *mut MEM_BASIC_INFO,
+        dw_length: usize,
+    ) -> usize;
+
+    let vq_proc = unsafe { GetProcAddress(h_kernel_guard.0, c"VirtualQueryEx".as_ptr() as _) };
+    let Some(proc_addr) = vq_proc else {
+        return;
+    };
+    let virtual_query_ex: VirtualQueryExFn = unsafe { std::mem::transmute(proc_addr) };
+
+    let mut address: usize = 0x10000;
+    let mut detected_count = 0;
+    let max_address: usize = 0x7FFF_FFFF_FFFF;
+
+    while address < max_address && detected_count < 10 {
+        let mut mbi: MEM_BASIC_INFO = unsafe { std::mem::zeroed() };
+        let bytes = unsafe {
+            virtual_query_ex(
+                handle_guard.0,
+                address as *const std::ffi::c_void,
+                &mut mbi,
+                std::mem::size_of::<MEM_BASIC_INFO>(),
+            )
+        };
+
+        if bytes == 0 {
+            break;
+        }
+
+        let is_committed = mbi.state == 0x1000;
+        let is_private = mbi.type_ == 0x20000;
+        let is_executable = (mbi.protect & (0x10 | 0x20 | 0x40 | 0x80)) != 0;
+        let is_guard_or_noaccess = (mbi.protect & (0x01 | 0x100)) != 0;
+
+        if is_committed && is_private && is_executable && !is_guard_or_noaccess {
+            detected_count += 1;
+            threats.push(SecurityThreat {
+                kind: ThreatKind::ModuleStomping,
+                name: format!("Unbacked Memory (0x{:X})", mbi.base_address as usize),
+                detail: format!(
+                    "Unbacked executable memory page detected in Roblox address space: 0x{:X} (size {} KB, protect 0x{:X})",
+                    mbi.base_address as usize,
+                    mbi.region_size / 1024,
+                    mbi.protect
+                ),
+                pid: Some(target_pid),
+            });
+        }
+
+        let next_addr = (mbi.base_address as usize).saturating_add(mbi.region_size);
+        if next_addr <= address {
+            break;
+        }
+        address = next_addr;
+    }
+}
+
 pub fn terminate_threat_pid(pid: u32) -> bool {
     if pid == 0 || pid == 4 || is_whitelisted_pid(pid) {
         return false;
@@ -1011,17 +1098,13 @@ type SetInformationJobObjectFn = unsafe extern "system" fn(
     cb_job_object_info_length: u32,
 ) -> i32;
 
-type AssignProcessToJobObjectFn = unsafe extern "system" fn(
-    h_job: HANDLE,
-    h_process: HANDLE,
-) -> i32;
+type AssignProcessToJobObjectFn =
+    unsafe extern "system" fn(h_job: HANDLE, h_process: HANDLE) -> i32;
 
 type HandlerRoutine = unsafe extern "system" fn(ctrl_type: u32) -> i32;
 
-type SetConsoleCtrlHandlerFn = unsafe extern "system" fn(
-    handler_routine: Option<HandlerRoutine>,
-    add: i32,
-) -> i32;
+type SetConsoleCtrlHandlerFn =
+    unsafe extern "system" fn(handler_routine: Option<HandlerRoutine>, add: i32) -> i32;
 
 #[repr(C)]
 struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
@@ -1085,7 +1168,8 @@ fn register_ctrl_handler() {
         return;
     }
     let h_guard = OwnedHandle(h_kernel32);
-    if let Some(proc) = unsafe { GetProcAddress(h_guard.0, c"SetConsoleCtrlHandler".as_ptr() as _) } {
+    if let Some(proc) = unsafe { GetProcAddress(h_guard.0, c"SetConsoleCtrlHandler".as_ptr() as _) }
+    {
         let set_ctrl_fn: SetConsoleCtrlHandlerFn = unsafe { std::mem::transmute(proc) };
         unsafe { set_ctrl_fn(Some(watcher_ctrl_handler), 1) };
     }
@@ -1141,12 +1225,11 @@ pub fn assign_roblox_to_job(job_handle: HANDLE, roblox_pid: u32) -> bool {
     }
     let h_guard = OwnedHandle(h_kernel32);
 
-    let assign_proc = match unsafe {
-        GetProcAddress(h_guard.0, c"AssignProcessToJobObject".as_ptr() as _)
-    } {
-        Some(addr) => addr,
-        None => return false,
-    };
+    let assign_proc =
+        match unsafe { GetProcAddress(h_guard.0, c"AssignProcessToJobObject".as_ptr() as _) } {
+            Some(addr) => addr,
+            None => return false,
+        };
     let assign_fn: AssignProcessToJobObjectFn = unsafe { std::mem::transmute(assign_proc) };
 
     let roblox_handle = unsafe { OpenProcess(0x00000200 | PROCESS_TERMINATE, 0, roblox_pid) };
@@ -1180,12 +1263,8 @@ pub fn harden_watchdog_process() {
             c"ConvertStringSecurityDescriptorToSecurityDescriptorW".as_ptr() as _,
         )
     };
-    let proc_set_sec = unsafe {
-        GetProcAddress(
-            h_advapi_guard.0,
-            c"SetKernelObjectSecurity".as_ptr() as _,
-        )
-    };
+    let proc_set_sec =
+        unsafe { GetProcAddress(h_advapi_guard.0, c"SetKernelObjectSecurity".as_ptr() as _) };
     let proc_local_free = if let Some(ref k) = h_kernel32_guard {
         unsafe { GetProcAddress(k.0, c"LocalFree".as_ptr() as _) }
     } else {
@@ -1343,7 +1422,11 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
         let mut last_scan = std::time::Instant::now();
         let start_time = std::time::Instant::now();
         let mut roblox_handle: HANDLE = if pid != 0 {
-            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, 0, pid)
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE,
+                0,
+                pid,
+            )
         } else {
             std::ptr::null_mut()
         };

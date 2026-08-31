@@ -505,6 +505,55 @@ pub fn fetch_authentication_ticket(cookie: &str) -> Result<String> {
     Err(Error::invalid("No authentication ticket returned"))
 }
 
+#[allow(dead_code)]
+pub fn fetch_avatar_headshots(user_ids: &[u64]) -> Result<std::collections::HashMap<u64, String>> {
+    if user_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let mut map = std::collections::HashMap::new();
+
+    for chunk in user_ids.chunks(50) {
+        let ids_str = chunk
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let url = format!(
+            "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={ids_str}&size=48x48&format=Png&isCircular=true"
+        );
+
+        if let Ok(mut res) = agent().get(&url).call() {
+            let mut body = String::new();
+            if res
+                .body_mut()
+                .as_reader()
+                .take(LIMIT as u64)
+                .read_to_string(&mut body)
+                .is_ok()
+            {
+                if let Ok(val) = serde_json::from_str::<Value>(&body) {
+                    if let Some(arr) = val.get("data").and_then(Value::as_array) {
+                        for item in arr {
+                            let target_id = item.get("targetId").and_then(Value::as_u64);
+                            let img_url = item.get("imageUrl").and_then(Value::as_str);
+                            let state = item.get("state").and_then(Value::as_str);
+                            if let (Some(id), Some(url)) = (target_id, img_url) {
+                                if state == Some("Completed") && !url.is_empty() {
+                                    map.insert(id, url.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(map)
+}
+
 #[cfg(windows)]
 pub fn apply_account_session(cookie: &str) -> Result<()> {
     let clean = sanitize_cookie(cookie);
