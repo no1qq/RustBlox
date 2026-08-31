@@ -458,53 +458,6 @@ pub fn fetch_friends(user_id: u64, cookie: &str) -> Result<Vec<FriendInfo>> {
     Ok(friends)
 }
 
-pub fn fetch_authentication_ticket(cookie: &str) -> Result<String> {
-    let clean = sanitize_cookie(cookie);
-    if clean.is_empty() {
-        return Err(Error::invalid("Empty cookie"));
-    }
-    let cookie_header = format!(".ROBLOSECURITY={clean}");
-
-    let mut res = raw_agent()
-        .post("https://auth.roblox.com/v1/authentication-ticket")
-        .header("Cookie", &cookie_header)
-        .header("Origin", "https://www.roblox.com")
-        .header("Referer", "https://www.roblox.com/")
-        .header("RBX-Authentication-Negotiation", "1")
-        .header("Content-Type", "application/json")
-        .send(b"{}")
-        .map_err(|err| Error::invalid(format!("Could not get auth ticket: {err}")))?;
-
-    if res.status().as_u16() == 403 {
-        if let Some(csrf) = res
-            .headers()
-            .get("x-csrf-token")
-            .and_then(|v| v.to_str().ok())
-        {
-            res = raw_agent()
-                .post("https://auth.roblox.com/v1/authentication-ticket")
-                .header("Cookie", &cookie_header)
-                .header("Origin", "https://www.roblox.com")
-                .header("Referer", "https://www.roblox.com/")
-                .header("RBX-Authentication-Negotiation", "1")
-                .header("x-csrf-token", csrf)
-                .header("Content-Type", "application/json")
-                .send(b"{}")
-                .map_err(|err| Error::invalid(format!("Could not get auth ticket: {err}")))?;
-        }
-    }
-
-    if let Some(val) = res.headers().get("rbx-authentication-ticket") {
-        if let Ok(ticket) = val.to_str() {
-            if !ticket.is_empty() {
-                return Ok(ticket.to_string());
-            }
-        }
-    }
-
-    Err(Error::invalid("No authentication ticket returned"))
-}
-
 #[cfg(windows)]
 pub fn apply_account_session(cookie: &str) -> Result<()> {
     let clean = sanitize_cookie(cookie);
