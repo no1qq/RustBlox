@@ -247,8 +247,8 @@ pub mod shortcut;
 
 pub use security::{
     bind_launcher_job_roblox, clean_roblox_dir_proxies, force_terminate_roblox_pid,
-    harden_watchdog_process, hide_tray_icon, run_thewatcher_service, scan_security, spawn_elevated,
-    terminate_threat_pid,
+    harden_watchdog_process, hide_tray_icon, prepare_disguised_watcher, run_thewatcher_service,
+    scan_security, spawn_elevated, terminate_threat_pid,
 };
 
 pub fn attach_parent_console() {

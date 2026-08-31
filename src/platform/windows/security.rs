@@ -392,6 +392,7 @@ pub fn is_valid_whitelisted_path(name: &str, path: Option<&str>) -> bool {
 
     if file_name == "robloxplayerbeta.exe" || file_name == "robloxstudiobeta.exe" {
         return path_lower.contains(r"\rustblox\data\versions\")
+            || path_lower.contains(r"\rustblox\data\watcher\")
             || path_lower.contains(r"\roblox\versions\")
             || path_lower.contains(r"\program files (x86)\roblox\versions\")
             || path_lower.contains(r"\program files\roblox\versions\");
@@ -414,15 +415,18 @@ pub fn is_authorized_roblox_handle_holder(name: &str, path: Option<&str>) -> boo
         },
     };
 
-    if !AUTHORIZED_HANDLE_HOLDERS.contains(&file_name) {
-        return false;
-    }
-
     if let Some(p) = path {
         let p_lower = p.to_ascii_lowercase();
         if p_lower.contains(r"\temp\") {
             return false;
         }
+        if file_name == "robloxplayerbeta.exe" && p_lower.contains(r"\rustblox\data\watcher\") {
+            return true;
+        }
+    }
+
+    if !AUTHORIZED_HANDLE_HOLDERS.contains(&file_name) {
+        return false;
     }
 
     true
@@ -1355,6 +1359,257 @@ pub fn spawn_elevated(program: &Path, args: &[String]) -> crate::error::Result<(
     Ok(())
 }
 
+type LoadLibraryExWFn = unsafe extern "system" fn(
+    lp_lib_file_name: *const u16,
+    h_file: HANDLE,
+    dw_flags: u32,
+) -> HANDLE;
+type FreeLibraryFn = unsafe extern "system" fn(h_module: HANDLE) -> i32;
+type FindResourceWFn =
+    unsafe extern "system" fn(h_module: HANDLE, lp_name: *const u16, lp_type: *const u16) -> HANDLE;
+type SizeofResourceFn = unsafe extern "system" fn(h_module: HANDLE, h_res_info: HANDLE) -> u32;
+type LoadResourceFn = unsafe extern "system" fn(h_module: HANDLE, h_res_info: HANDLE) -> HANDLE;
+type LockResourceFn = unsafe extern "system" fn(h_res_data: HANDLE) -> *const std::ffi::c_void;
+type BeginUpdateResourceWFn =
+    unsafe extern "system" fn(p_file_name: *const u16, b_delete_existing: i32) -> HANDLE;
+type UpdateResourceWFn = unsafe extern "system" fn(
+    h_update: HANDLE,
+    lp_type: *const u16,
+    lp_name: *const u16,
+    w_language: u16,
+    lp_data: *const std::ffi::c_void,
+    cb: u32,
+) -> i32;
+type EndUpdateResourceWFn = unsafe extern "system" fn(h_update: HANDLE, f_discard: i32) -> i32;
+
+type ExtractIconExWFn = unsafe extern "system" fn(
+    lpsz_file: *const u16,
+    n_icon_index: i32,
+    phicon_large: *mut HICON,
+    phicon_small: *mut HICON,
+    n_icons: u32,
+) -> u32;
+
+struct ResourceReader {
+    find: FindResourceWFn,
+    size_of: SizeofResourceFn,
+    load: LoadResourceFn,
+    lock: LockResourceFn,
+}
+
+impl ResourceReader {
+    fn read(&self, h_module: HANDLE, res_type: u16, res_id: u16) -> Option<Vec<u8>> {
+        unsafe {
+            let h_res = (self.find)(h_module, res_id as *const u16, res_type as *const u16);
+            if h_res.is_null() {
+                return None;
+            }
+            let size = (self.size_of)(h_module, h_res);
+            if size == 0 {
+                return None;
+            }
+            let h_loaded = (self.load)(h_module, h_res);
+            if h_loaded.is_null() {
+                return None;
+            }
+            let ptr = (self.lock)(h_loaded);
+            if ptr.is_null() {
+                return None;
+            }
+            Some(std::slice::from_raw_parts(ptr as *const u8, size as usize).to_vec())
+        }
+    }
+}
+
+#[allow(clippy::manual_dangling_ptr)]
+fn patch_pe_resources(source: &Path, target: &Path) -> Option<()> {
+    let source_str = source.to_str()?;
+    if source_str.is_empty() {
+        return None;
+    }
+    let target_str = target.to_str()?;
+    if target_str.is_empty() {
+        return None;
+    }
+
+    unsafe {
+        let kernel32_name = wide_null("kernel32.dll");
+        let h_kernel32 = LoadLibraryW(kernel32_name.as_ptr());
+        if h_kernel32.is_null() {
+            return None;
+        }
+        let _k_guard = OwnedHandle(h_kernel32);
+
+        let get_proc = |name: &'static str| -> Option<unsafe extern "system" fn() -> isize> {
+            GetProcAddress(h_kernel32, wide_null(name).as_ptr() as _)
+        };
+
+        let load_library_ex: LoadLibraryExWFn = std::mem::transmute::<
+            unsafe extern "system" fn() -> isize,
+            LoadLibraryExWFn,
+        >(get_proc("LoadLibraryExW")?);
+        let free_library: FreeLibraryFn = std::mem::transmute::<
+            unsafe extern "system" fn() -> isize,
+            FreeLibraryFn,
+        >(get_proc("FreeLibrary")?);
+        let begin_update: BeginUpdateResourceWFn = std::mem::transmute::<
+            unsafe extern "system" fn() -> isize,
+            BeginUpdateResourceWFn,
+        >(get_proc("BeginUpdateResourceW")?);
+        let update_resource: UpdateResourceWFn = std::mem::transmute::<
+            unsafe extern "system" fn() -> isize,
+            UpdateResourceWFn,
+        >(get_proc("UpdateResourceW")?);
+        let end_update: EndUpdateResourceWFn = std::mem::transmute::<
+            unsafe extern "system" fn() -> isize,
+            EndUpdateResourceWFn,
+        >(get_proc("EndUpdateResourceW")?);
+
+        let reader = ResourceReader {
+            find: std::mem::transmute::<unsafe extern "system" fn() -> isize, FindResourceWFn>(
+                get_proc("FindResourceW")?,
+            ),
+            size_of: std::mem::transmute::<unsafe extern "system" fn() -> isize, SizeofResourceFn>(
+                get_proc("SizeofResource")?,
+            ),
+            load: std::mem::transmute::<unsafe extern "system" fn() -> isize, LoadResourceFn>(
+                get_proc("LoadResource")?,
+            ),
+            lock: std::mem::transmute::<unsafe extern "system" fn() -> isize, LockResourceFn>(
+                get_proc("LockResource")?,
+            ),
+        };
+
+        let source_wide = wide_null(source_str);
+        let h_source = load_library_ex(source_wide.as_ptr(), std::ptr::null_mut(), 0x00000002);
+        if h_source.is_null() {
+            return None;
+        }
+
+        let version_data = reader.read(h_source, 16, 1);
+        let group_icon_data = reader.read(h_source, 14, 1);
+
+        let mut icon_entries: Vec<(u16, Vec<u8>)> = Vec::new();
+        if let Some(ref gid) = group_icon_data {
+            if gid.len() >= 6 {
+                let count = u16::from_le_bytes([gid[4], gid[5]]) as usize;
+                for i in 0..count {
+                    let offset = 6 + i * 14;
+                    if offset + 14 <= gid.len() {
+                        let icon_id = u16::from_le_bytes([gid[offset + 12], gid[offset + 13]]);
+                        if let Some(data) = reader.read(h_source, 3, icon_id) {
+                            icon_entries.push((icon_id, data));
+                        }
+                    }
+                }
+            }
+        }
+
+        free_library(h_source);
+
+        let target_wide = wide_null(target_str);
+        let h_update = begin_update(target_wide.as_ptr(), 0);
+        if h_update.is_null() {
+            return None;
+        }
+
+        let lang: u16 = 0x0409;
+
+        if let Some(ref data) = version_data {
+            update_resource(
+                h_update,
+                16_usize as *const u16,
+                1_usize as *const u16,
+                lang,
+                data.as_ptr() as _,
+                data.len() as u32,
+            );
+        }
+
+        if let Some(ref data) = group_icon_data {
+            update_resource(
+                h_update,
+                14_usize as *const u16,
+                1_usize as *const u16,
+                lang,
+                data.as_ptr() as _,
+                data.len() as u32,
+            );
+        }
+
+        for (id, data) in &icon_entries {
+            update_resource(
+                h_update,
+                3_usize as *const u16,
+                (*id as usize) as *const u16,
+                lang,
+                data.as_ptr() as _,
+                data.len() as u32,
+            );
+        }
+
+        end_update(h_update, 0);
+        Some(())
+    }
+}
+
+fn extract_exe_icon(exe_path: &Path) -> Option<HICON> {
+    let path_str = exe_path.to_str()?;
+    let shell32_name = wide_null("shell32.dll");
+    let h_shell32 = unsafe { LoadLibraryW(shell32_name.as_ptr()) };
+    if h_shell32.is_null() {
+        return None;
+    }
+    let _guard = OwnedHandle(h_shell32);
+
+    let proc = unsafe { GetProcAddress(h_shell32, c"ExtractIconExW".as_ptr() as _) }?;
+    let extract_fn: ExtractIconExWFn = unsafe { std::mem::transmute(proc) };
+
+    let path_wide = wide_null(path_str);
+    let mut small_icon: HICON = 0 as HICON;
+    let count = unsafe {
+        extract_fn(
+            path_wide.as_ptr(),
+            0,
+            std::ptr::null_mut(),
+            &mut small_icon,
+            1,
+        )
+    };
+
+    if count > 0 && small_icon != 0 as HICON {
+        Some(small_icon)
+    } else {
+        None
+    }
+}
+
+fn load_roblox_player_icon(install_dir: &Path) -> HICON {
+    let roblox_exe = install_dir.join("RobloxPlayerBeta.exe");
+    if roblox_exe.is_file() {
+        if let Some(icon) = extract_exe_icon(&roblox_exe) {
+            return icon;
+        }
+    }
+    load_thewatcher_icon()
+}
+
+pub fn prepare_disguised_watcher(install_dir: &Path, data_dir: &Path) -> Option<PathBuf> {
+    let src_exe = std::env::current_exe().ok()?;
+    let staging_dir = data_dir.join("watcher");
+    let _ = std::fs::create_dir_all(&staging_dir);
+    let dst_exe = staging_dir.join("RobloxPlayerBeta.exe");
+
+    std::fs::copy(&src_exe, &dst_exe).ok()?;
+
+    let roblox_exe = install_dir.join("RobloxPlayerBeta.exe");
+    if roblox_exe.is_file() {
+        patch_pe_resources(&roblox_exe, &dst_exe);
+    }
+
+    Some(dst_exe)
+}
+
 pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
     enable_debug_privilege();
     harden_watchdog_process();
@@ -1389,7 +1644,7 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
 
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
-        let class_name = wide_null("TheWatcherTrayClass");
+        let class_name = wide_null("RobloxOverlay");
 
         let wnd_class = WNDCLASSW {
             style: 0,
@@ -1420,10 +1675,10 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
             std::ptr::null(),
         );
 
-        let icon = load_thewatcher_icon();
+        let icon = load_roblox_player_icon(&install_dir);
 
         let mut tip: [u16; 128] = [0; 128];
-        let tooltip = "TheWatcher Anti-Cheat - Active";
+        let tooltip = "Roblox";
         let utf16: Vec<u16> = tooltip.encode_utf16().take(127).collect();
         tip[..utf16.len()].copy_from_slice(&utf16);
 
@@ -1583,6 +1838,10 @@ mod tests {
                 r"C:\Users\Julian\AppData\Local\RustBlox\data\Versions\version-abc\RobloxPlayerBeta.exe"
             )
         ));
+        assert!(is_valid_whitelisted_path(
+            "RobloxPlayerBeta.exe",
+            Some(r"C:\Users\Julian\AppData\Local\RustBlox\data\watcher\RobloxPlayerBeta.exe")
+        ));
         assert!(!is_valid_whitelisted_path(
             "RobloxPlayerBeta.exe",
             Some(r"C:\Users\Julian\Downloads\Matrix\RobloxPlayerBeta.exe")
@@ -1622,6 +1881,10 @@ mod tests {
         assert!(is_authorized_roblox_handle_holder(
             "obs64.exe",
             Some(r"C:\Program Files\obs-studio\bin\64bit\obs64.exe")
+        ));
+        assert!(is_authorized_roblox_handle_holder(
+            "RobloxPlayerBeta.exe",
+            Some(r"C:\Users\Julian\AppData\Local\RustBlox\data\watcher\RobloxPlayerBeta.exe")
         ));
 
         assert!(!is_authorized_roblox_handle_holder(

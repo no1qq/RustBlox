@@ -1,6 +1,6 @@
 [package]
 name = "rustblox"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 rust-version = "1.85"
 description = "A modern desktop client and launcher for Roblox"

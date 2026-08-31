@@ -590,7 +590,12 @@ impl AppState {
 
         if let Some(install) = self.detection.active() {
             let install_dir = install.version_dir.clone();
-            if let Ok(exe) = std::env::current_exe() {
+            let data_dir = self.store.paths().data_dir().to_path_buf();
+
+            let watcher_exe = platform::prepare_disguised_watcher(&install_dir, &data_dir)
+                .or_else(|| std::env::current_exe().ok());
+
+            if let Some(exe) = watcher_exe {
                 let elevated_result = platform::spawn_elevated(
                     &exe,
                     &[

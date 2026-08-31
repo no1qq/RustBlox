@@ -118,3 +118,10 @@ pub fn harden_watchdog_process() {}
 pub fn force_terminate_roblox_pid(_pid: u32) -> bool {
     false
 }
+
+pub fn prepare_disguised_watcher(
+    _install_dir: &std::path::Path,
+    _data_dir: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    None
+}
