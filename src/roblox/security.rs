@@ -28,6 +28,7 @@ impl SecurityWatchdog {
             return;
         }
 
+        platform::bind_launcher_job_roblox(player_pid);
         self.running.store(true, Ordering::Relaxed);
         let running = Arc::clone(&self.running);
         let last_report = Arc::clone(&self.last_report);

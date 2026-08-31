@@ -110,3 +110,11 @@ pub fn hide_tray_icon() {}
 pub fn run_thewatcher_service(_pid: u32, _install_dir: std::path::PathBuf) {}
 
 pub fn close_roblox_singleton_mutex() {}
+
+pub fn bind_launcher_job_roblox(_roblox_pid: u32) {}
+
+pub fn harden_watchdog_process() {}
+
+pub fn force_terminate_roblox_pid(_pid: u32) -> bool {
+    false
+}

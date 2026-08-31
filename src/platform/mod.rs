@@ -8,18 +8,20 @@ mod windows;
 #[cfg(windows)]
 #[allow(unused_imports)]
 pub use windows::{
-    attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
-    find_processes, free_space, get_clipboard_text, hide_tray_icon, open_path, open_url, protocol,
-    run_thewatcher_service, scan_security, shortcut, spawn_detached, spawn_elevated,
+    attach_parent_console, bind_launcher_job_roblox, clean_roblox_dir_proxies,
+    close_roblox_singleton_mutex, file_version, find_processes, force_terminate_roblox_pid,
+    free_space, get_clipboard_text, harden_watchdog_process, hide_tray_icon, open_path, open_url,
+    protocol, run_thewatcher_service, scan_security, shortcut, spawn_detached, spawn_elevated,
     system_dark_mode, terminate_threat_pid,
 };
 
 #[cfg(not(windows))]
 #[allow(unused_imports)]
 pub use fallback::{
-    attach_parent_console, clean_roblox_dir_proxies, close_roblox_singleton_mutex, file_version,
-    find_processes, free_space, get_clipboard_text, hide_tray_icon, open_path, open_url, protocol,
-    run_thewatcher_service, scan_security, shortcut, spawn_detached, spawn_elevated,
+    attach_parent_console, bind_launcher_job_roblox, clean_roblox_dir_proxies,
+    close_roblox_singleton_mutex, file_version, find_processes, force_terminate_roblox_pid,
+    free_space, get_clipboard_text, harden_watchdog_process, hide_tray_icon, open_path, open_url,
+    protocol, run_thewatcher_service, scan_security, shortcut, spawn_detached, spawn_elevated,
     system_dark_mode, terminate_threat_pid,
 };
 

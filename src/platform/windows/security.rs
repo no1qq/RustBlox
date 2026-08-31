@@ -1241,6 +1241,26 @@ pub fn assign_roblox_to_job(job_handle: HANDLE, roblox_pid: u32) -> bool {
     unsafe { assign_fn(job_handle, roblox_guard.0) != 0 }
 }
 
+static LAUNCHER_JOB: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
+
+pub fn bind_launcher_job_roblox(roblox_pid: u32) {
+    if roblox_pid == 0 {
+        return;
+    }
+    let mut guard = match LAUNCHER_JOB.lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    if guard.is_none() {
+        *guard = create_failclosed_job_object().map(|h| h as isize);
+    }
+    if let Some(job) = *guard {
+        assign_roblox_to_job(job as HANDLE, roblox_pid);
+    }
+    WATCHDOG_ROBLOX_PID.store(roblox_pid, std::sync::atomic::Ordering::SeqCst);
+    register_ctrl_handler();
+}
+
 pub fn harden_watchdog_process() {
     let advapi_name = wide_null("advapi32.dll");
     let h_advapi = unsafe { LoadLibraryW(advapi_name.as_ptr()) };
@@ -1284,7 +1304,7 @@ pub fn harden_watchdog_process() {
             && !p_sd.is_null()
         {
             let current_proc = unsafe { GetCurrentProcess() };
-            let _ = unsafe { set_sec_fn(current_proc, 0x00000004 | 0x80000000, p_sd) };
+            let _ = unsafe { set_sec_fn(current_proc, 4, p_sd) };
             if let Some(lf) = proc_local_free {
                 let local_free_fn: LocalFreeFn = unsafe { std::mem::transmute(lf) };
                 unsafe { local_free_fn(p_sd) };

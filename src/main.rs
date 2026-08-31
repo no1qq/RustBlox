@@ -21,6 +21,7 @@ use config::{Paths, Store, WindowState};
 use error::Result;
 
 fn main() -> ExitCode {
+    platform::harden_watchdog_process();
     let invocation = cli::parse(std::env::args().skip(1));
 
     match &invocation.command_kind {

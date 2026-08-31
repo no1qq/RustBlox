@@ -408,6 +408,7 @@ fn execute(
         }
     };
     let pid = child.id();
+    platform::bind_launcher_job_roblox(pid);
     done(emit, StepId::Start, format!("process {pid} created"));
 
     active(emit, StepId::Confirm);
