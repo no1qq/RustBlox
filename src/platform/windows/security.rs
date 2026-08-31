@@ -30,8 +30,9 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateIconFromResourceEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     EnumWindows, GetSystemMetrics, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible, LoadIconW, PeekMessageW, RegisterClassW, TranslateMessage, HICON, IDI_SHIELD,
-    LR_DEFAULTCOLOR, MSG, PM_REMOVE, SM_CXSMICON, SW_HIDE, WNDCLASSW, WS_OVERLAPPED,
+    IsWindowVisible, LoadIconW, PeekMessageW, RegisterClassW, ShowWindow, TranslateMessage, HICON,
+    IDI_SHIELD, LR_DEFAULTCOLOR, MSG, PM_REMOVE, SM_CXSMICON, SW_HIDE, SW_SHOWNA, WNDCLASSW,
+    WS_OVERLAPPED,
 };
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
@@ -1480,7 +1481,11 @@ fn patch_pe_resources(source: &Path, target: &Path) -> Option<()> {
         }
 
         let version_data = reader.read(h_source, 16, 1);
-        let group_icon_data = reader.read(h_source, 14, 1);
+        let group_icon_data = reader
+            .read(h_source, 14, 101)
+            .or_else(|| reader.read(h_source, 14, 100))
+            .or_else(|| reader.read(h_source, 14, 1))
+            .or_else(|| reader.read(h_source, 14, 32512));
 
         let mut icon_entries: Vec<(u16, Vec<u8>)> = Vec::new();
         if let Some(ref gid) = group_icon_data {
@@ -1676,15 +1681,19 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
             class_name.as_ptr(),
             window_title.as_ptr(),
             WS_OVERLAPPED,
-            0,
-            0,
-            0,
-            0,
+            -32000,
+            -32000,
+            100,
+            100,
             0 as _,
             0 as _,
             hinstance,
             std::ptr::null(),
         );
+
+        if hwnd != 0 as _ {
+            ShowWindow(hwnd, SW_SHOWNA);
+        }
 
         let mut msg: MSG = std::mem::zeroed();
         let mut last_scan = std::time::Instant::now();
