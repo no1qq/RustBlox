@@ -306,6 +306,12 @@ pub fn system_dark_mode() -> Option<bool> {
 pub fn close_roblox_singleton_mutex() {
     let procs = find_processes(&["RobloxPlayerBeta.exe"]);
     for p in procs {
+        if let Some(ref path) = p.image {
+            let path_lower = path.to_string_lossy().to_ascii_lowercase();
+            if path_lower.contains(r"\rustblox\data\watcher\") {
+                continue;
+            }
+        }
         close_process_mutex_handle(p.pid, "ROBLOX_singletonMutex");
         close_process_mutex_handle(p.pid, "ROBLOX_singletonEvent");
     }

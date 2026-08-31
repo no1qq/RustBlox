@@ -28,10 +28,23 @@ impl RobloxStatus {
     }
 }
 
+fn is_watcher_process(process: &ProcessInfo) -> bool {
+    if let Some(ref path) = process.image {
+        let path_lower = path.to_string_lossy().to_ascii_lowercase();
+        if path_lower.contains(r"\rustblox\data\watcher\") {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn status() -> RobloxStatus {
     let found = platform::find_processes(&[PLAYER_EXE, STUDIO_EXE]);
     let mut status = RobloxStatus::default();
     for process in found {
+        if is_watcher_process(&process) {
+            continue;
+        }
         if process.name.eq_ignore_ascii_case(STUDIO_EXE) {
             status.studios.push(process);
         } else {
@@ -44,5 +57,5 @@ pub fn status() -> RobloxStatus {
 pub fn is_pid_alive(pid: u32) -> bool {
     platform::find_processes(&[PLAYER_EXE, STUDIO_EXE, CRASH_HANDLER_EXE])
         .iter()
-        .any(|process| process.pid == pid)
+        .any(|process| process.pid == pid && !is_watcher_process(process))
 }

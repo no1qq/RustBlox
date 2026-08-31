@@ -1382,14 +1382,6 @@ type UpdateResourceWFn = unsafe extern "system" fn(
 ) -> i32;
 type EndUpdateResourceWFn = unsafe extern "system" fn(h_update: HANDLE, f_discard: i32) -> i32;
 
-type ExtractIconExWFn = unsafe extern "system" fn(
-    lpsz_file: *const u16,
-    n_icon_index: i32,
-    phicon_large: *mut HICON,
-    phicon_small: *mut HICON,
-    n_icons: u32,
-) -> u32;
-
 struct ResourceReader {
     find: FindResourceWFn,
     size_of: SizeofResourceFn,
@@ -1553,47 +1545,6 @@ fn patch_pe_resources(source: &Path, target: &Path) -> Option<()> {
     }
 }
 
-fn extract_exe_icon(exe_path: &Path) -> Option<HICON> {
-    let path_str = exe_path.to_str()?;
-    let shell32_name = wide_null("shell32.dll");
-    let h_shell32 = unsafe { LoadLibraryW(shell32_name.as_ptr()) };
-    if h_shell32.is_null() {
-        return None;
-    }
-    let _guard = OwnedHandle(h_shell32);
-
-    let proc = unsafe { GetProcAddress(h_shell32, c"ExtractIconExW".as_ptr() as _) }?;
-    let extract_fn: ExtractIconExWFn = unsafe { std::mem::transmute(proc) };
-
-    let path_wide = wide_null(path_str);
-    let mut small_icon: HICON = 0 as HICON;
-    let count = unsafe {
-        extract_fn(
-            path_wide.as_ptr(),
-            0,
-            std::ptr::null_mut(),
-            &mut small_icon,
-            1,
-        )
-    };
-
-    if count > 0 && small_icon != 0 as HICON {
-        Some(small_icon)
-    } else {
-        None
-    }
-}
-
-fn load_roblox_player_icon(install_dir: &Path) -> HICON {
-    let roblox_exe = install_dir.join("RobloxPlayerBeta.exe");
-    if roblox_exe.is_file() {
-        if let Some(icon) = extract_exe_icon(&roblox_exe) {
-            return icon;
-        }
-    }
-    load_thewatcher_icon()
-}
-
 pub fn prepare_disguised_watcher(install_dir: &Path, data_dir: &Path) -> Option<PathBuf> {
     let src_exe = std::env::current_exe().ok()?;
     let staging_dir = data_dir.join("watcher");
@@ -1675,10 +1626,10 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
             std::ptr::null(),
         );
 
-        let icon = load_roblox_player_icon(&install_dir);
+        let icon = load_thewatcher_icon();
 
         let mut tip: [u16; 128] = [0; 128];
-        let tooltip = "Roblox";
+        let tooltip = "TheWatcher Anti-Cheat - Active";
         let utf16: Vec<u16> = tooltip.encode_utf16().take(127).collect();
         tip[..utf16.len()].copy_from_slice(&utf16);
 
