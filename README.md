@@ -6,7 +6,6 @@
 a lightweight, fast Roblox launcher and bootstrapper for Windows, written in Rust.
 
   <p>
-    <a href="https://github.com/no1qq/RustBlox/releases"><img src="https://img.shields.io/badge/release-v0.3.0-ff5c00?style=flat-square&logo=github&logoColor=white" alt="Release" /></a>
     <a href="https://github.com/no1qq/RustBlox/releases"><img src="https://img.shields.io/badge/release-v0.3.5-ff5c00?style=flat-square&logo=github&logoColor=white" alt="Release" /></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.85+-dea584?style=flat-square&logo=rust&logoColor=white" alt="Rust" /></a>
     <a href="https://github.com/no1qq/RustBlox/releases"><img src="https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square&logo=windows&logoColor=white" alt="Platform" /></a>
