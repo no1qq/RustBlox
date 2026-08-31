@@ -1545,6 +1545,63 @@ fn patch_pe_resources(source: &Path, target: &Path) -> Option<()> {
     }
 }
 
+fn patch_exe_version_strings(target: &Path) {
+    let Ok(mut bytes) = std::fs::read(target) else {
+        return;
+    };
+
+    let needle_desc: Vec<u8> = "RustBlox desktop client for Roblox"
+        .encode_utf16()
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+
+    let repl_desc_str = "Roblox Game Client\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+    let repl_desc_utf16: Vec<u16> = repl_desc_str.encode_utf16().collect();
+    let repl_desc: Vec<u8> = repl_desc_utf16
+        .iter()
+        .take(needle_desc.len() / 2)
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+
+    if needle_desc.len() == repl_desc.len() {
+        let mut pos = 0;
+        while let Some(idx) = bytes[pos..]
+            .windows(needle_desc.len())
+            .position(|w| w == needle_desc)
+        {
+            let match_idx = pos + idx;
+            bytes[match_idx..match_idx + needle_desc.len()].copy_from_slice(&repl_desc);
+            pos = match_idx + needle_desc.len();
+        }
+    }
+
+    let needle_prod: Vec<u8> = "RustBlox"
+        .encode_utf16()
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+    let repl_prod_str = "Roblox\0\0";
+    let repl_prod_utf16: Vec<u16> = repl_prod_str.encode_utf16().collect();
+    let repl_prod: Vec<u8> = repl_prod_utf16
+        .iter()
+        .take(needle_prod.len() / 2)
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+
+    if needle_prod.len() == repl_prod.len() {
+        let mut pos = 0;
+        while let Some(idx) = bytes[pos..]
+            .windows(needle_prod.len())
+            .position(|w| w == needle_prod)
+        {
+            let match_idx = pos + idx;
+            bytes[match_idx..match_idx + needle_prod.len()].copy_from_slice(&repl_prod);
+            pos = match_idx + needle_prod.len();
+        }
+    }
+
+    let _ = std::fs::write(target, &bytes);
+}
+
 pub fn prepare_disguised_watcher(install_dir: &Path, data_dir: &Path) -> Option<PathBuf> {
     let src_exe = std::env::current_exe().ok()?;
     let staging_dir = data_dir.join("watcher");
@@ -1552,6 +1609,7 @@ pub fn prepare_disguised_watcher(install_dir: &Path, data_dir: &Path) -> Option<
     let dst_exe = staging_dir.join("RobloxPlayerBeta.exe");
 
     std::fs::copy(&src_exe, &dst_exe).ok()?;
+    patch_exe_version_strings(&dst_exe);
 
     let roblox_exe = install_dir.join("RobloxPlayerBeta.exe");
     if roblox_exe.is_file() {
