@@ -2013,6 +2013,7 @@ dependencies = [
  "directories",
  "eframe",
  "egui",
+ "image",
  "md-5",
  "miniz_oxide",
  "rfd",

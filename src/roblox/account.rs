@@ -554,6 +554,35 @@ pub fn fetch_avatar_headshots(user_ids: &[u64]) -> Result<std::collections::Hash
     Ok(map)
 }
 
+pub fn fetch_avatar_image_bytes(user_id: u64) -> Result<Vec<u8>> {
+    let headshots = fetch_avatar_headshots(&[user_id])?;
+    let url = headshots
+        .get(&user_id)
+        .ok_or_else(|| Error::invalid("Avatar headshot not available"))?;
+
+    let mut res = agent()
+        .get(url)
+        .call()
+        .map_err(|err| Error::invalid(format!("Could not fetch avatar image: {err}")))?;
+
+    let mut bytes = Vec::new();
+    res.body_mut()
+        .as_reader()
+        .take(LIMIT as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|err| Error::io("Could not read avatar bytes", err))?;
+
+    Ok(bytes)
+}
+
+pub fn decode_avatar_png(bytes: &[u8]) -> Option<egui::ColorImage> {
+    let dyn_img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png).ok()?;
+    let rgba = dyn_img.to_rgba8();
+    let size = [rgba.width() as usize, rgba.height() as usize];
+    let pixels = rgba.into_raw();
+    Some(egui::ColorImage::from_rgba_unmultiplied(size, &pixels))
+}
+
 #[cfg(windows)]
 pub fn apply_account_session(cookie: &str) -> Result<()> {
     let clean = sanitize_cookie(cookie);

@@ -27,6 +27,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 md-5 = "0.11"
 crc32fast = "1.4"
 miniz_oxide = "0.8"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"

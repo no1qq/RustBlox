@@ -54,6 +54,134 @@ fn subtab_selector(ui: &mut Ui, theme: &Theme, ui_state: &mut UiState) {
     });
 }
 
+static AVATAR_IMAGE_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, Option<Vec<u8>>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+static AVATAR_IN_FLIGHT: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<u64>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+fn get_or_fetch_avatar_texture(ctx: &egui::Context, user_id: u64) -> Option<egui::TextureHandle> {
+    let key = egui::Id::new(("user-avatar-texture", user_id));
+    if let Some(handle) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(key)) {
+        return Some(handle);
+    }
+
+    let cached_bytes = {
+        let guard = AVATAR_IMAGE_CACHE.lock().ok()?;
+        guard.get(&user_id).cloned()
+    };
+
+    if let Some(maybe_bytes) = cached_bytes {
+        if let Some(bytes) = maybe_bytes {
+            if let Some(color_img) = account::decode_avatar_png(&bytes) {
+                let handle = ctx.load_texture(
+                    format!("avatar-{user_id}"),
+                    color_img,
+                    egui::TextureOptions::LINEAR,
+                );
+                ctx.data_mut(|d| d.insert_temp(key, handle.clone()));
+                return Some(handle);
+            }
+        }
+        return None;
+    }
+
+    let should_fetch = {
+        if let Ok(mut in_flight) = AVATAR_IN_FLIGHT.lock() {
+            in_flight.insert(user_id)
+        } else {
+            false
+        }
+    };
+
+    if should_fetch {
+        let ctx_clone = ctx.clone();
+        std::thread::Builder::new()
+            .name(format!("avatar-fetch-{user_id}"))
+            .spawn(move || {
+                let bytes = account::fetch_avatar_image_bytes(user_id).ok();
+                if let Ok(mut cache) = AVATAR_IMAGE_CACHE.lock() {
+                    cache.insert(user_id, bytes);
+                }
+                if let Ok(mut in_flight) = AVATAR_IN_FLIGHT.lock() {
+                    in_flight.remove(&user_id);
+                }
+                ctx_clone.request_repaint();
+            })
+            .ok();
+    }
+
+    None
+}
+
+fn draw_avatar(
+    ui: &mut Ui,
+    rect: egui::Rect,
+    user_id: Option<u64>,
+    name: &str,
+    is_active: bool,
+    theme: &Theme,
+) {
+    let radius = rect.width() / 2.0;
+    let bg_color = if is_active {
+        theme.palette.accent.gamma_multiply(0.2)
+    } else {
+        theme.palette.surface_hover
+    };
+    ui.painter().circle_filled(rect.center(), radius, bg_color);
+    ui.painter().circle_stroke(
+        rect.center(),
+        radius,
+        egui::Stroke::new(
+            if is_active { 1.5 } else { 1.0 },
+            if is_active {
+                theme.palette.accent
+            } else {
+                theme.palette.border
+            },
+        ),
+    );
+
+    let mut rendered_texture = false;
+    if let Some(id) = user_id {
+        if let Some(tex) = get_or_fetch_avatar_texture(ui.ctx(), id) {
+            ui.painter().add(
+                egui::epaint::RectShape::filled(
+                    rect.shrink(1.0),
+                    theme.radius_lg(),
+                    egui::Color32::WHITE,
+                )
+                .with_texture(
+                    tex.id(),
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                ),
+            );
+            rendered_texture = true;
+        }
+    }
+
+    if !rendered_texture {
+        let initial = name
+            .chars()
+            .next()
+            .unwrap_or('?')
+            .to_uppercase()
+            .to_string();
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            &initial,
+            egui::FontId::proportional(radius * 0.85),
+            if is_active {
+                theme.palette.accent
+            } else {
+                theme.palette.text
+            },
+        );
+    }
+}
+
 fn render_accounts_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state: &mut UiState) {
     current_account_card(ui, theme, state);
     ui.add_space(theme.metrics.gap_lg);
@@ -75,49 +203,17 @@ fn current_account_card(ui: &mut Ui, theme: &Theme, state: &mut AppState) {
                     let avatar_size = Vec2::splat(44.0);
                     let (avatar_rect, _) =
                         ui.allocate_exact_size(avatar_size, egui::Sense::hover());
-                    let initial = active_account
-                        .as_ref()
-                        .and_then(|a| a.display_name.chars().next())
-                        .map(|c| c.to_uppercase().to_string());
-                    ui.painter().circle_filled(
-                        avatar_rect.center(),
-                        22.0,
-                        if active_account.is_some() {
-                            theme.palette.accent.gamma_multiply(0.2)
-                        } else {
-                            theme.palette.surface_hover
-                        },
+                    draw_avatar(
+                        ui,
+                        avatar_rect,
+                        active_account.as_ref().map(|a| a.id),
+                        active_account
+                            .as_ref()
+                            .map(|a| a.display_name.as_str())
+                            .unwrap_or("?"),
+                        active_account.is_some(),
+                        theme,
                     );
-                    ui.painter().circle_stroke(
-                        avatar_rect.center(),
-                        22.0,
-                        egui::Stroke::new(
-                            1.5,
-                            if active_account.is_some() {
-                                theme.palette.accent
-                            } else {
-                                theme.palette.border
-                            },
-                        ),
-                    );
-
-                    if let Some(init) = initial {
-                        ui.painter().text(
-                            avatar_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            &init,
-                            egui::FontId::proportional(18.0),
-                            theme.palette.accent,
-                        );
-                    } else {
-                        crate::ui::icons::draw(
-                            ui.painter(),
-                            Icon::User,
-                            avatar_rect.shrink(10.0),
-                            theme.palette.text_muted,
-                            1.8,
-                        );
-                    }
 
                     ui.add_space(theme.metrics.gap_sm);
 
@@ -242,42 +338,13 @@ fn manage_accounts_card(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_sta
                             ui.horizontal(|ui| {
                                 let (avatar_rect, _) =
                                     ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::hover());
-                                let initial = acc
-                                    .display_name
-                                    .chars()
-                                    .next()
-                                    .unwrap_or('?')
-                                    .to_uppercase()
-                                    .to_string();
-                                let avatar_bg = if is_active {
-                                    theme.palette.accent.gamma_multiply(0.2)
-                                } else {
-                                    theme.palette.surface_hover
-                                };
-                                ui.painter()
-                                    .circle_filled(avatar_rect.center(), 18.0, avatar_bg);
-                                ui.painter().circle_stroke(
-                                    avatar_rect.center(),
-                                    18.0,
-                                    egui::Stroke::new(
-                                        if is_active { 1.5 } else { 1.0 },
-                                        if is_active {
-                                            theme.palette.accent
-                                        } else {
-                                            theme.palette.border
-                                        },
-                                    ),
-                                );
-                                ui.painter().text(
-                                    avatar_rect.center(),
-                                    egui::Align2::CENTER_CENTER,
-                                    &initial,
-                                    egui::FontId::proportional(15.0),
-                                    if is_active {
-                                        theme.palette.accent
-                                    } else {
-                                        theme.palette.text
-                                    },
+                                draw_avatar(
+                                    ui,
+                                    avatar_rect,
+                                    Some(acc.id),
+                                    &acc.display_name,
+                                    is_active,
+                                    theme,
                                 );
 
                                 ui.add_space(theme.metrics.gap_xs);
@@ -504,41 +571,13 @@ fn render_friends_tab(ui: &mut Ui, theme: &Theme, state: &mut AppState, ui_state
                             let is_ingame = friend.presence_type == 2;
                             let is_online = friend.presence_type > 0;
 
-                            let bg_color = if is_ingame {
-                                theme.palette.accent.gamma_multiply(0.18)
-                            } else if is_online {
-                                theme.palette.info.gamma_multiply(0.18)
-                            } else {
-                                theme.palette.surface_hover
-                            };
-                            ui.painter()
-                                .circle_filled(avatar_rect.center(), 19.0, bg_color);
-                            ui.painter().circle_stroke(
-                                avatar_rect.center(),
-                                19.0,
-                                egui::Stroke::new(1.0, theme.palette.border),
-                            );
-
-                            let icon_color = if is_ingame {
-                                theme.palette.accent
-                            } else if is_online {
-                                theme.palette.info
-                            } else {
-                                theme.palette.text_muted
-                            };
-                            let initial = friend
-                                .display_name
-                                .chars()
-                                .next()
-                                .unwrap_or('?')
-                                .to_uppercase()
-                                .to_string();
-                            ui.painter().text(
-                                avatar_rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                &initial,
-                                egui::FontId::proportional(16.0),
-                                icon_color,
+                            draw_avatar(
+                                ui,
+                                avatar_rect,
+                                Some(friend.id),
+                                &friend.display_name,
+                                is_ingame,
+                                theme,
                             );
 
                             let status_dot_pos = avatar_rect.right_bottom() + Vec2::new(-4.0, -4.0);
