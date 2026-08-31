@@ -984,15 +984,179 @@ pub fn enable_debug_privilege() -> bool {
     }
 }
 
-type SetSecurityInfoFn = unsafe extern "system" fn(
+type ConvertStringSecurityDescriptorToSecurityDescriptorWFn = unsafe extern "system" fn(
+    string_security_descriptor: *const u16,
+    string_sd_revision: u32,
+    security_descriptor: *mut *mut std::ffi::c_void,
+    security_descriptor_size: *mut u32,
+) -> i32;
+
+type SetKernelObjectSecurityFn = unsafe extern "system" fn(
     handle: HANDLE,
-    object_type: u32,
-    security_info: u32,
-    psid_owner: *const std::ffi::c_void,
-    psid_group: *const std::ffi::c_void,
-    p_dacl: *const std::ffi::c_void,
-    p_sacl: *const std::ffi::c_void,
-) -> u32;
+    security_information: u32,
+    security_descriptor: *const std::ffi::c_void,
+) -> i32;
+
+type LocalFreeFn = unsafe extern "system" fn(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+
+type CreateJobObjectWFn = unsafe extern "system" fn(
+    lp_job_attributes: *const std::ffi::c_void,
+    lp_name: *const u16,
+) -> HANDLE;
+
+type SetInformationJobObjectFn = unsafe extern "system" fn(
+    h_job: HANDLE,
+    job_object_info_class: i32,
+    lp_job_object_info: *const std::ffi::c_void,
+    cb_job_object_info_length: u32,
+) -> i32;
+
+type AssignProcessToJobObjectFn = unsafe extern "system" fn(
+    h_job: HANDLE,
+    h_process: HANDLE,
+) -> i32;
+
+type HandlerRoutine = unsafe extern "system" fn(ctrl_type: u32) -> i32;
+
+type SetConsoleCtrlHandlerFn = unsafe extern "system" fn(
+    handler_routine: Option<HandlerRoutine>,
+    add: i32,
+) -> i32;
+
+#[repr(C)]
+struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+    per_process_user_time_limit: i64,
+    per_job_user_time_limit: i64,
+    limit_flags: u32,
+    minimum_working_set_size: usize,
+    maximum_working_set_size: usize,
+    active_process_limit: u32,
+    affinity: usize,
+    priority_class: u32,
+    scheduling_class: u32,
+}
+
+#[repr(C)]
+struct IO_COUNTERS {
+    read_operation_count: u64,
+    write_operation_count: u64,
+    other_operation_count: u64,
+    read_transfer_count: u64,
+    write_transfer_count: u64,
+    other_transfer_count: u64,
+}
+
+#[repr(C)]
+struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+    basic_limit_information: JOBOBJECT_BASIC_LIMIT_INFORMATION,
+    io_info: IO_COUNTERS,
+    process_memory_limit: usize,
+    job_memory_limit: usize,
+    peak_process_memory_limit: usize,
+    peak_job_memory_limit: usize,
+}
+
+static WATCHDOG_ROBLOX_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn force_terminate_roblox_pid(pid: u32) -> bool {
+    if pid == 0 || pid == 4 {
+        return false;
+    }
+    let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
+    if handle.is_null() {
+        return false;
+    }
+    let handle = OwnedHandle(handle);
+    unsafe { TerminateProcess(handle.0, 1) != 0 }
+}
+
+unsafe extern "system" fn watcher_ctrl_handler(_ctrl_type: u32) -> i32 {
+    let pid = WATCHDOG_ROBLOX_PID.load(std::sync::atomic::Ordering::SeqCst);
+    if pid != 0 {
+        force_terminate_roblox_pid(pid);
+    }
+    0
+}
+
+fn register_ctrl_handler() {
+    let kernel32_name = wide_null("kernel32.dll");
+    let h_kernel32 = unsafe { LoadLibraryW(kernel32_name.as_ptr()) };
+    if h_kernel32.is_null() {
+        return;
+    }
+    let h_guard = OwnedHandle(h_kernel32);
+    if let Some(proc) = unsafe { GetProcAddress(h_guard.0, c"SetConsoleCtrlHandler".as_ptr() as _) } {
+        let set_ctrl_fn: SetConsoleCtrlHandlerFn = unsafe { std::mem::transmute(proc) };
+        unsafe { set_ctrl_fn(Some(watcher_ctrl_handler), 1) };
+    }
+}
+
+pub fn create_failclosed_job_object() -> Option<HANDLE> {
+    let kernel32_name = wide_null("kernel32.dll");
+    let h_kernel32 = unsafe { LoadLibraryW(kernel32_name.as_ptr()) };
+    if h_kernel32.is_null() {
+        return None;
+    }
+    let h_guard = OwnedHandle(h_kernel32);
+
+    let create_job = unsafe { GetProcAddress(h_guard.0, c"CreateJobObjectW".as_ptr() as _) }?;
+    let set_info = unsafe { GetProcAddress(h_guard.0, c"SetInformationJobObject".as_ptr() as _) }?;
+
+    let create_job_fn: CreateJobObjectWFn = unsafe { std::mem::transmute(create_job) };
+    let set_info_fn: SetInformationJobObjectFn = unsafe { std::mem::transmute(set_info) };
+
+    let job_handle = unsafe { create_job_fn(std::ptr::null(), std::ptr::null()) };
+    if job_handle.is_null() || job_handle == INVALID_HANDLE_VALUE {
+        return None;
+    }
+
+    let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+    info.basic_limit_information.limit_flags = 0x00002000 | 0x00001000;
+
+    let ok = unsafe {
+        set_info_fn(
+            job_handle,
+            9,
+            &info as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    };
+
+    if ok != 0 {
+        Some(job_handle)
+    } else {
+        unsafe { CloseHandle(job_handle) };
+        None
+    }
+}
+
+pub fn assign_roblox_to_job(job_handle: HANDLE, roblox_pid: u32) -> bool {
+    if job_handle.is_null() || job_handle == INVALID_HANDLE_VALUE || roblox_pid == 0 {
+        return false;
+    }
+    let kernel32_name = wide_null("kernel32.dll");
+    let h_kernel32 = unsafe { LoadLibraryW(kernel32_name.as_ptr()) };
+    if h_kernel32.is_null() {
+        return false;
+    }
+    let h_guard = OwnedHandle(h_kernel32);
+
+    let assign_proc = match unsafe {
+        GetProcAddress(h_guard.0, c"AssignProcessToJobObject".as_ptr() as _)
+    } {
+        Some(addr) => addr,
+        None => return false,
+    };
+    let assign_fn: AssignProcessToJobObjectFn = unsafe { std::mem::transmute(assign_proc) };
+
+    let roblox_handle = unsafe { OpenProcess(0x00000200 | PROCESS_TERMINATE, 0, roblox_pid) };
+    if roblox_handle.is_null() {
+        return false;
+    }
+    let roblox_guard = OwnedHandle(roblox_handle);
+
+    unsafe { assign_fn(job_handle, roblox_guard.0) != 0 }
+}
 
 pub fn harden_watchdog_process() {
     let advapi_name = wide_null("advapi32.dll");
@@ -1000,25 +1164,53 @@ pub fn harden_watchdog_process() {
     if h_advapi.is_null() {
         return;
     }
-    let h_guard = OwnedHandle(h_advapi);
+    let h_advapi_guard = OwnedHandle(h_advapi);
 
-    let proc = unsafe { GetProcAddress(h_guard.0, c"SetSecurityInfo".as_ptr() as _) };
-    let Some(proc_addr) = proc else {
-        return;
+    let kernel32_name = wide_null("kernel32.dll");
+    let h_kernel32 = unsafe { LoadLibraryW(kernel32_name.as_ptr()) };
+    let h_kernel32_guard = if !h_kernel32.is_null() {
+        Some(OwnedHandle(h_kernel32))
+    } else {
+        None
     };
-    let set_security_info: SetSecurityInfoFn = unsafe { std::mem::transmute(proc_addr) };
 
-    let current_proc = unsafe { GetCurrentProcess() };
-    unsafe {
-        let _ = set_security_info(
-            current_proc,
-            6,
-            0x00000004 | 0x80000000,
-            std::ptr::null(),
-            std::ptr::null(),
-            std::ptr::null(),
-            std::ptr::null(),
+    let proc_convert = unsafe {
+        GetProcAddress(
+            h_advapi_guard.0,
+            c"ConvertStringSecurityDescriptorToSecurityDescriptorW".as_ptr() as _,
+        )
+    };
+    let proc_set_sec = unsafe {
+        GetProcAddress(
+            h_advapi_guard.0,
+            c"SetKernelObjectSecurity".as_ptr() as _,
+        )
+    };
+    let proc_local_free = if let Some(ref k) = h_kernel32_guard {
+        unsafe { GetProcAddress(k.0, c"LocalFree".as_ptr() as _) }
+    } else {
+        None
+    };
+
+    if let (Some(conv), Some(set_sec)) = (proc_convert, proc_set_sec) {
+        let convert_fn: ConvertStringSecurityDescriptorToSecurityDescriptorWFn =
+            unsafe { std::mem::transmute(conv) };
+        let set_sec_fn: SetKernelObjectSecurityFn = unsafe { std::mem::transmute(set_sec) };
+
+        let sddl = wide_null(
+            "D:P(D;;0x000c0829;;;WD)(D;;0x000c0829;;;BU)(D;;0x000c0829;;;BA)(D;;0x000c0829;;;IU)(A;;0x00101000;;;WD)(A;;GA;;;SY)",
         );
+        let mut p_sd: *mut std::ffi::c_void = std::ptr::null_mut();
+        if unsafe { convert_fn(sddl.as_ptr(), 1, &mut p_sd, std::ptr::null_mut()) } != 0
+            && !p_sd.is_null()
+        {
+            let current_proc = unsafe { GetCurrentProcess() };
+            let _ = unsafe { set_sec_fn(current_proc, 0x00000004 | 0x80000000, p_sd) };
+            if let Some(lf) = proc_local_free {
+                let local_free_fn: LocalFreeFn = unsafe { std::mem::transmute(lf) };
+                unsafe { local_free_fn(p_sd) };
+            }
+        }
     }
 }
 
@@ -1067,6 +1259,34 @@ pub fn spawn_elevated(program: &Path, args: &[String]) -> crate::error::Result<(
 pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
     enable_debug_privilege();
     harden_watchdog_process();
+    register_ctrl_handler();
+
+    let job_handle = create_failclosed_job_object();
+    if pid != 0 {
+        WATCHDOG_ROBLOX_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
+        if let Some(job) = job_handle {
+            assign_roblox_to_job(job, pid);
+        }
+    }
+
+    let heartbeat_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hb_flag = std::sync::Arc::clone(&heartbeat_stop);
+    let _hb_thread = std::thread::Builder::new()
+        .name("anti-freeze-heartbeat".into())
+        .spawn(move || {
+            let mut last_tick = std::time::Instant::now();
+            while !hb_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                let elapsed = last_tick.elapsed();
+                last_tick = std::time::Instant::now();
+                if elapsed > std::time::Duration::from_millis(1500) {
+                    let target = WATCHDOG_ROBLOX_PID.load(std::sync::atomic::Ordering::Relaxed);
+                    if target != 0 {
+                        force_terminate_roblox_pid(target);
+                    }
+                }
+            }
+        });
 
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
@@ -1123,7 +1343,7 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
         let mut last_scan = std::time::Instant::now();
         let start_time = std::time::Instant::now();
         let mut roblox_handle: HANDLE = if pid != 0 {
-            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
+            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, 0, pid)
         } else {
             std::ptr::null_mut()
         };
@@ -1142,7 +1362,15 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                         CloseHandle(roblox_handle);
                     }
                     pid = player.pid;
-                    roblox_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                    WATCHDOG_ROBLOX_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
+                    if let Some(job) = job_handle {
+                        assign_roblox_to_job(job, pid);
+                    }
+                    roblox_handle = OpenProcess(
+                        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE,
+                        0,
+                        pid,
+                    );
                 }
                 consecutive_dead = 0;
             } else if pid == 0 {
@@ -1160,6 +1388,7 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
                 if !is_alive {
                     consecutive_dead += 1;
                     if consecutive_dead >= 10 {
+                        WATCHDOG_ROBLOX_PID.store(0, std::sync::atomic::Ordering::SeqCst);
                         break;
                     }
                 } else {
@@ -1185,8 +1414,15 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
             std::thread::sleep(std::time::Duration::from_millis(150));
         }
 
+        WATCHDOG_ROBLOX_PID.store(0, std::sync::atomic::Ordering::SeqCst);
+        heartbeat_stop.store(true, std::sync::atomic::Ordering::Relaxed);
+
         if !roblox_handle.is_null() {
             CloseHandle(roblox_handle);
+        }
+
+        if let Some(job) = job_handle {
+            CloseHandle(job);
         }
 
         Shell_NotifyIconW(NIM_DELETE, &data);
