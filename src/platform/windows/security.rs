@@ -25,8 +25,7 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows_sys::Win32::UI::Shell::{
-    ShellExecuteExW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
-    NOTIFYICONDATAW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+    ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateIconFromResourceEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
@@ -37,6 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::platform::{SecurityReport, SecurityThreat, ThreatKind};
 
+#[allow(dead_code)]
 const THEWATCHER_ICO: &[u8] = include_bytes!("../../../assets/thewatcher.ico");
 
 const CHEAT_PROCESS_KEYWORDS: &[&str] = &[
@@ -960,6 +960,7 @@ pub fn clean_roblox_dir_proxies(dir: &Path) -> Vec<PathBuf> {
     removed
 }
 
+#[allow(dead_code)]
 fn load_thewatcher_icon() -> HICON {
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
@@ -1654,6 +1655,7 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
     unsafe {
         let hinstance = GetModuleHandleW(std::ptr::null());
         let class_name = wide_null("RobloxOverlay");
+        let window_title = wide_null("Roblox");
 
         let wnd_class = WNDCLASSW {
             style: 0,
@@ -1672,7 +1674,7 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
         let hwnd = CreateWindowExW(
             0,
             class_name.as_ptr(),
-            class_name.as_ptr(),
+            window_title.as_ptr(),
             WS_OVERLAPPED,
             0,
             0,
@@ -1683,24 +1685,6 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
             hinstance,
             std::ptr::null(),
         );
-
-        let icon = load_thewatcher_icon();
-
-        let mut tip: [u16; 128] = [0; 128];
-        let tooltip = "TheWatcher Anti-Cheat - Active";
-        let utf16: Vec<u16> = tooltip.encode_utf16().take(127).collect();
-        tip[..utf16.len()].copy_from_slice(&utf16);
-
-        let mut data: NOTIFYICONDATAW = std::mem::zeroed();
-        data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
-        data.hWnd = hwnd;
-        data.uID = 0x524258;
-        data.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
-        data.uCallbackMessage = 0x8001;
-        data.hIcon = icon;
-        data.szTip = tip;
-
-        Shell_NotifyIconW(NIM_ADD, &data);
 
         let mut msg: MSG = std::mem::zeroed();
         let mut last_scan = std::time::Instant::now();
@@ -1791,8 +1775,6 @@ pub fn run_thewatcher_service(mut pid: u32, install_dir: PathBuf) {
         if let Some(job) = job_handle {
             CloseHandle(job);
         }
-
-        Shell_NotifyIconW(NIM_DELETE, &data);
 
         if hwnd != 0 as _ {
             DestroyWindow(hwnd);
